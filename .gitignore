@@ -1,0 +1,47 @@
+# 打包输出目录
+build/
+dist/
+
+# 临时 DMG 目录
+dmg_temp/
+dmg_content/
+cache/
+
+# Python 编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 虚拟环境
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# PyInstaller 相关
+*.spec
+
+# 临时文件
+*.log
+*.tmp
+*.temp
+
+# 缓存目录
+cache/
