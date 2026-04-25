@@ -2,6 +2,7 @@ import pygame
 import random
 import sys
 import os
+import math
 
 pygame.init()
 
@@ -16,6 +17,10 @@ BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 GRAY = (128, 128, 128)
+ORANGE = (255, 165, 0)
+LIGHT_BLUE = (100, 200, 255)
+DARK_BLUE = (50, 100, 200)
+DARK_RED = (200, 0, 0)
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("躲避陨石")
@@ -50,6 +55,102 @@ large_font = get_chinese_font(64)
 medium_font = get_chinese_font(48)
 small_font = get_chinese_font(28)
 
+class Particle:
+    def __init__(self, x, y, vx, vy, color, size, lifetime, fade_speed, shrink_speed):
+        self.x = x
+        self.y = y
+        self.vx = vx
+        self.vy = vy
+        self.color = color
+        self.size = size
+        self.initial_size = size
+        self.lifetime = lifetime
+        self.max_lifetime = lifetime
+        self.fade_speed = fade_speed
+        self.shrink_speed = shrink_speed
+        self.alpha = 255
+    
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.lifetime -= 1
+        
+        if self.lifetime > 0:
+            self.alpha = int(255 * (self.lifetime / self.max_lifetime))
+            self.size = self.initial_size * (self.lifetime / self.max_lifetime)
+        
+        return self.lifetime > 0
+    
+    def draw(self, surface):
+        if self.alpha <= 0 or self.size <= 0:
+            return
+        
+        temp_surface = pygame.Surface((int(self.size * 2) + 2, int(self.size * 2) + 2), pygame.SRCALPHA)
+        alpha_color = (self.color[0], self.color[1], self.color[2], self.alpha)
+        pygame.draw.circle(temp_surface, alpha_color, (int(self.size) + 1, int(self.size) + 1), int(self.size))
+        surface.blit(temp_surface, (int(self.x - self.size), int(self.y - self.size)))
+
+class ParticleSystem:
+    def __init__(self):
+        self.particles = []
+    
+    def create_engine_trail(self, x, y, direction):
+        for _ in range(2):
+            offset_x = random.randint(-10, 10)
+            vx = direction * random.uniform(1, 3) + random.uniform(-1, 1)
+            vy = random.uniform(0.5, 2)
+            color = random.choice([BLUE, LIGHT_BLUE, DARK_BLUE])
+            size = random.uniform(3, 6)
+            lifetime = random.randint(20, 40)
+            particle = Particle(
+                x + offset_x, y,
+                vx, vy,
+                color, size, lifetime,
+                fade_speed=5, shrink_speed=0.1
+            )
+            self.particles.append(particle)
+    
+    def create_explosion(self, x, y, num_particles=15):
+        for _ in range(num_particles):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(2, 6)
+            vx = speed * math.cos(angle)
+            vy = speed * math.sin(angle)
+            color = random.choice([ORANGE, YELLOW, RED, (255, 100, 0)])
+            size = random.uniform(4, 8)
+            lifetime = random.randint(30, 60)
+            particle = Particle(
+                x, y,
+                vx, vy,
+                color, size, lifetime,
+                fade_speed=3, shrink_speed=0.05
+            )
+            self.particles.append(particle)
+    
+    def create_collision(self, x, y, num_particles=25):
+        for _ in range(num_particles):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(3, 8)
+            vx = speed * math.cos(angle)
+            vy = speed * math.sin(angle)
+            color = random.choice([RED, DARK_RED, ORANGE, YELLOW])
+            size = random.uniform(5, 10)
+            lifetime = random.randint(40, 80)
+            particle = Particle(
+                x, y,
+                vx, vy,
+                color, size, lifetime,
+                fade_speed=2, shrink_speed=0.03
+            )
+            self.particles.append(particle)
+    
+    def update(self):
+        self.particles = [p for p in self.particles if p.update()]
+    
+    def draw(self, surface):
+        for particle in self.particles:
+            particle.draw(surface)
+
 class Ship:
     def __init__(self):
         self.width = 60
@@ -58,14 +159,29 @@ class Ship:
         self.y = SCREEN_HEIGHT - 80
         self.speed = 7
         self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
+        self.direction = 0
+        self.is_moving = False
+        self.prev_x = self.x
     
     def update(self, keys):
+        self.prev_x = self.x
+        self.is_moving = False
+        self.direction = 0
+        
         if keys[pygame.K_LEFT] and self.x > 0:
             self.x -= self.speed
+            self.is_moving = True
+            self.direction = -1
         if keys[pygame.K_RIGHT] and self.x < SCREEN_WIDTH - self.width:
             self.x += self.speed
+            self.is_moving = True
+            self.direction = 1
+        
         self.rect.x = self.x
         self.rect.y = self.y
+    
+    def get_engine_position(self):
+        return self.x + self.width // 2, self.y + self.height
     
     def draw(self, surface):
         pygame.draw.polygon(surface, BLUE, [
@@ -83,6 +199,9 @@ class Meteor:
         self.y = -self.height
         self.speed = random.randint(3, 8)
         self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
+    
+    def get_center(self):
+        return self.x + self.width // 2, self.y + self.height // 2
     
     def update(self):
         self.y += self.speed
@@ -121,12 +240,23 @@ class Game:
     def __init__(self):
         self.ship = Ship()
         self.meteors = []
+        self.particle_system = ParticleSystem()
         self.score = 0
         self.game_over = False
         self.paused = False
         self.meteor_timer = 0
         self.meteor_interval = 60
         self.game_started = False
+        self.collision_happened = False
+        
+        self.collision_delay = 0
+        self.collision_delay_frames = FPS * 5
+        self.flash_timer = 0
+        self.flash_interval = 5
+        self.show_flash = False
+        self.collision_particle_timer = 0
+        self.collision_x = 0
+        self.collision_y = 0
         
         self.start_button = Button(
             SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20,
@@ -154,12 +284,19 @@ class Game:
     def reset(self):
         self.ship = Ship()
         self.meteors = []
+        self.particle_system = ParticleSystem()
         self.score = 0
         self.game_over = False
         self.paused = False
         self.meteor_timer = 0
         self.meteor_interval = 60
         self.game_started = True
+        self.collision_happened = False
+        
+        self.collision_delay = 0
+        self.flash_timer = 0
+        self.show_flash = False
+        self.collision_particle_timer = 0
     
     def spawn_meteor(self):
         self.meteor_timer += 1
@@ -172,24 +309,75 @@ class Game:
     def check_collisions(self):
         for meteor in self.meteors:
             if self.ship.rect.colliderect(meteor.rect):
-                self.game_over = True
+                if not self.collision_happened:
+                    ship_center = (self.ship.x + self.ship.width // 2, 
+                                   self.ship.y + self.ship.height // 2)
+                    self.particle_system.create_collision(ship_center[0], ship_center[1], 50)
+                    meteor_center = meteor.get_center()
+                    self.particle_system.create_collision(meteor_center[0], meteor_center[1], 35)
+                    
+                    self.collision_x = (ship_center[0] + meteor_center[0]) // 2
+                    self.collision_y = (ship_center[1] + meteor_center[1]) // 2
+                    
+                    self.collision_happened = True
+                    self.collision_delay = self.collision_delay_frames
+                    self.flash_timer = 0
+                    self.collision_particle_timer = 0
                 return True
         return False
     
     def update(self, keys):
-        if not self.game_started or self.game_over or self.paused:
+        if not self.game_started or self.paused:
+            self.particle_system.update()
+            return
+        
+        if self.game_over:
+            self.particle_system.update()
+            return
+        
+        if self.collision_happened and self.collision_delay > 0:
+            self.collision_delay -= 1
+            
+            self.flash_timer += 1
+            if self.flash_timer >= self.flash_interval:
+                self.show_flash = not self.show_flash
+                self.flash_timer = 0
+            
+            self.collision_particle_timer += 1
+            if self.collision_particle_timer % 3 == 0:
+                offset_x = random.randint(-30, 30)
+                offset_y = random.randint(-30, 30)
+                self.particle_system.create_collision(
+                    self.collision_x + offset_x, 
+                    self.collision_y + offset_y, 
+                    random.randint(5, 15)
+                )
+            
+            self.particle_system.update()
+            
+            if self.collision_delay <= 0:
+                self.game_over = True
+                self.show_flash = False
             return
         
         self.ship.update(keys)
+        
+        if self.ship.is_moving:
+            engine_x, engine_y = self.ship.get_engine_position()
+            self.particle_system.create_engine_trail(engine_x, engine_y, self.ship.direction)
+        
         self.spawn_meteor()
         
         for meteor in self.meteors[:]:
             meteor.update()
             if meteor.y > SCREEN_HEIGHT:
+                meteor_center = meteor.get_center()
+                self.particle_system.create_explosion(meteor_center[0], SCREEN_HEIGHT - 20, 12)
                 self.meteors.remove(meteor)
                 self.score += 10
         
         self.check_collisions()
+        self.particle_system.update()
     
     def draw_start_screen(self, surface, mouse_pos):
         surface.fill(BLACK)
@@ -247,16 +435,34 @@ class Game:
             self.draw_start_screen(surface, mouse_pos)
             return
         
-        for meteor in self.meteors:
-            meteor.draw(surface)
+        self.particle_system.draw(surface)
         
-        self.ship.draw(surface)
+        if not (self.collision_happened and self.collision_delay > 0):
+            for meteor in self.meteors:
+                meteor.draw(surface)
+            
+            self.ship.draw(surface)
         
         score_text = font.render(f"分数: {self.score}", True, WHITE)
         surface.blit(score_text, (10, 10))
         
         pause_hint = small_font.render("按 P 暂停", True, GRAY)
         surface.blit(pause_hint, (SCREEN_WIDTH - 120, 10))
+        
+        if self.collision_happened and self.collision_delay > 0:
+            if self.show_flash:
+                flash_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                flash_overlay.fill((255, 50, 50, 100))
+                surface.blit(flash_overlay, (0, 0))
+            
+            remaining_seconds = max(0, self.collision_delay // FPS)
+            countdown_text = large_font.render(f"{remaining_seconds + 1}", True, RED)
+            countdown_rect = countdown_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            surface.blit(countdown_text, countdown_rect)
+            
+            collision_hint = small_font.render("碰撞!", True, YELLOW)
+            collision_hint_rect = collision_hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
+            surface.blit(collision_hint, collision_hint_rect)
         
         if self.paused:
             self.draw_pause_screen(surface, mouse_pos)
