@@ -11,6 +11,7 @@ from game.config import (
     METEOR_CONFIG, METEOR_SPLIT
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
+from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
 from game.entities.particle import ParticleSystem
 from game.entities.ship import Ship
 from game.entities.meteor import Meteor
@@ -77,6 +78,9 @@ class Game:
         self.meteor_slow = False
         self.meteor_slow_duration = 0
         
+        self.move_sound_cooldown = 0
+        self.move_sound_interval = 8
+        
         self.starfield = StarField()
         
         if HAS_ADVANCED_SYSTEMS:
@@ -118,6 +122,9 @@ class Game:
         
         self.high_score = 0
         self._load_high_score()
+        
+        self.audio_manager = get_audio_manager()
+        self.audio_manager.load_all_sounds()
     
     def _load_high_score(self):
         try:
@@ -175,6 +182,8 @@ class Game:
         self.meteor_slow = False
         self.meteor_slow_duration = 0
         
+        self.move_sound_cooldown = 0
+        
         self.shake_offset_x = 0
         self.shake_offset_y = 0
         self.shake_angle = 0
@@ -187,6 +196,8 @@ class Game:
         
         if self.difficulty_system:
             self.difficulty_system = DifficultySystem()
+        
+        self.audio_manager.play_music("background")
     
     def add_score_with_combo(self, base_score, source=""):
         if self.combo_system:
@@ -216,6 +227,7 @@ class Game:
             ship_top_y = self.ship.y
             self.bullets.append(Bullet(ship_center_x, ship_top_y))
             self.bullet_cooldown = self.bullet_cooldown_frames
+            self.audio_manager.play_sound(SoundType.SHOOT)
     
     def spawn_meteor(self):
         self.meteor_timer += 1
@@ -270,6 +282,9 @@ class Game:
                         score_value = meteor.config.get("score", 10)
                         self.add_score_with_combo(score_value, "destroy")
                         self.meteors.remove(meteor)
+                        self.audio_manager.play_sound(SoundType.EXPLOSION)
+                    else:
+                        self.audio_manager.play_sound(SoundType.HIT)
                     
                     self.bullets.remove(bullet)
                     break
@@ -303,6 +318,9 @@ class Game:
                         
                         score_value = meteor.config.get("score", 10)
                         self.add_score_with_combo(score_value, "shield_destroy")
+                        self.audio_manager.play_sound(SoundType.EXPLOSION)
+                    else:
+                        self.audio_manager.play_sound(SoundType.HIT)
                     
                     self.meteors.remove(meteor)
                     continue
@@ -333,11 +351,14 @@ class Game:
                     
                     self.lives -= 1
                     
+                    self.audio_manager.play_sound(SoundType.COLLISION)
+                    
                     if self.lives <= 0:
                         self.collision_happened = True
                         self.collision_delay = self.collision_delay_frames
                         self.flash_timer = 0
                         self.collision_particle_timer = 0
+                        self.audio_manager.play_sound(SoundType.GAME_OVER)
                     else:
                         self.warning_flash = True
                         self.warning_flash_timer = 0
@@ -381,6 +402,8 @@ class Game:
                     powerup.config["color"], duration=120, float_speed=0, font_size=48
                 )
                 
+                self.audio_manager.play_sound(SoundType.POWERUP)
+                
                 self.powerups.remove(powerup)
                 return True
         return False
@@ -401,6 +424,8 @@ class Game:
         
         if self.difficulty_system:
             self.difficulty_system.update(self.score)
+            if self.difficulty_system.has_just_leveled_up():
+                self.audio_manager.play_sound(SoundType.LEVEL_UP)
         
         if not self.game_started or self.paused:
             self.particle_system.update()
@@ -434,6 +459,7 @@ class Game:
             if self.collision_delay <= 0:
                 self.game_over = True
                 self.show_flash = False
+                self.audio_manager.stop_music()
                 
                 if self.score > self.high_score:
                     self.high_score = self.score
@@ -468,6 +494,15 @@ class Game:
         if self.ship.is_moving:
             engine_x, engine_y = self.ship.get_engine_position()
             self.particle_system.create_engine_trail(engine_x, engine_y, self.ship.direction)
+            
+            if self.move_sound_cooldown <= 0:
+                self.audio_manager.play_sound(SoundType.MOVE)
+                self.move_sound_cooldown = self.move_sound_interval
+        else:
+            self.move_sound_cooldown = 0
+        
+        if self.move_sound_cooldown > 0:
+            self.move_sound_cooldown -= 1
         
         self.spawn_meteor()
         self.spawn_powerup()
@@ -496,6 +531,7 @@ class Game:
                 
                 score_value = meteor.config.get("score", 10)
                 self.add_score_with_combo(score_value, "dodge")
+                self.audio_manager.play_sound(SoundType.DODGE)
         
         for powerup in self.powerups[:]:
             if not powerup.update():

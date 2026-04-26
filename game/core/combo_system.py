@@ -189,14 +189,18 @@ class DifficultySystem:
         self.display_level_up = False
         self.level_up_timer = 0
         self.level_up_duration = FPS * 3
+        self.just_leveled_up = False
     
     def update(self, current_score):
+        self.just_leveled_up = False
+        
         if current_score >= self.level_up_score:
             self.level += 1
             self.level_up_score += self.score_threshold * self.level
             self._increase_difficulty()
             self.display_level_up = True
             self.level_up_timer = self.level_up_duration
+            self.just_leveled_up = True
         
         if self.display_level_up:
             self.level_up_timer -= 1
@@ -225,6 +229,9 @@ class DifficultySystem:
     
     def get_level(self):
         return self.level
+    
+    def has_just_leveled_up(self):
+        return self.just_leveled_up
     
     def should_display_level_up(self):
         return self.display_level_up
