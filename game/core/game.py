@@ -16,8 +16,16 @@ from game.entities.ship import Ship
 from game.entities.meteor import Meteor
 from game.entities.powerup import PowerUp
 from game.entities.bullet import Bullet
+from game.entities.starfield import StarField
 from game.ui.button import Button
 from game.ui.floating_text import FloatingTextManager
+
+try:
+    from game.core.screen_shake import ScreenShake, ShakeType
+    from game.core.combo_system import ComboSystem, DifficultySystem
+    HAS_ADVANCED_SYSTEMS = True
+except ImportError:
+    HAS_ADVANCED_SYSTEMS = False
 
 class Game:
     def __init__(self):
@@ -69,30 +77,67 @@ class Game:
         self.meteor_slow = False
         self.meteor_slow_duration = 0
         
+        self.starfield = StarField()
+        
+        if HAS_ADVANCED_SYSTEMS:
+            self.screen_shake = ScreenShake()
+            self.combo_system = ComboSystem()
+            self.difficulty_system = DifficultySystem()
+        else:
+            self.screen_shake = None
+            self.combo_system = None
+            self.difficulty_system = None
+        
+        self.render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        self.shake_offset_x = 0
+        self.shake_offset_y = 0
+        self.shake_angle = 0
+        
         self.start_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20,
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 80,
             200, 50, "开始游戏", GREEN, (0, 200, 0)
         )
         
         self.pause_continue_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 10,
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20,
             200, 50, "继续游戏", GREEN, (0, 200, 0)
         )
         self.pause_quit_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 80,
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 90,
             200, 50, "退出游戏", RED, (200, 0, 0)
         )
         
         self.game_over_restart_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50,
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 130,
             200, 50, "重新开始", GREEN, (0, 200, 0)
         )
         self.game_over_quit_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 120,
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 210,
             200, 50, "退出游戏", RED, (200, 0, 0)
         )
+        
+        self.high_score = 0
+        self._load_high_score()
+    
+    def _load_high_score(self):
+        try:
+            with open("high_score.txt", "r") as f:
+                self.high_score = int(f.read().strip())
+        except:
+            self.high_score = 0
+    
+    def _save_high_score(self):
+        try:
+            with open("high_score.txt", "w") as f:
+                f.write(str(self.high_score))
+        except:
+            pass
     
     def reset(self):
+        if self.score > self.high_score:
+            self.high_score = self.score
+            self._save_high_score()
+        
         self.ship = Ship()
         self.meteors = []
         self.powerups = []
@@ -129,6 +174,41 @@ class Game:
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
+        
+        self.shake_offset_x = 0
+        self.shake_offset_y = 0
+        self.shake_angle = 0
+        
+        if self.screen_shake:
+            self.screen_shake.stop_shake()
+        
+        if self.combo_system:
+            self.combo_system = ComboSystem()
+        
+        if self.difficulty_system:
+            self.difficulty_system = DifficultySystem()
+    
+    def add_score_with_combo(self, base_score, source=""):
+        if self.combo_system:
+            multiplier = self.combo_system.add_hit(1)
+            final_score = int(base_score * multiplier)
+            self.score += final_score
+            
+            if multiplier > 1.0:
+                self.text_manager.add_score_text(80, 30, final_score)
+            else:
+                self.text_manager.add_score_text(80, 30, base_score)
+        else:
+            self.score += base_score
+            self.text_manager.add_score_text(80, 30, base_score)
+    
+    def reset_combo(self):
+        if self.combo_system:
+            self.combo_system.reset_combo()
+    
+    def trigger_shake(self, shake_type):
+        if self.screen_shake and shake_type:
+            self.screen_shake.add_trauma(shake_type.get("trauma", 0.3))
     
     def shoot_bullet(self):
         if self.has_bullet and self.bullet_cooldown <= 0:
@@ -139,7 +219,12 @@ class Game:
     
     def spawn_meteor(self):
         self.meteor_timer += 1
-        if self.meteor_timer >= self.meteor_interval:
+        
+        effective_interval = self.meteor_interval
+        if self.difficulty_system:
+            effective_interval = int(self.meteor_interval / self.difficulty_system.get_meteor_spawn_multiplier())
+        
+        if self.meteor_timer >= effective_interval:
             self.meteors.append(Meteor())
             self.meteor_timer = 0
             if self.meteor_interval > 20:
@@ -162,10 +247,16 @@ class Game:
                         meteor_center[0], meteor_center[1], 8
                     )
                     
+                    if self.screen_shake:
+                        self.screen_shake.add_trauma(0.15)
+                    
                     if meteor.take_damage():
                         self.particle_system.create_explosion(
                             meteor_center[0], meteor_center[1], 25
                         )
+                        
+                        if self.screen_shake:
+                            self.screen_shake.add_trauma(0.3)
                         
                         if meteor.can_split():
                             split_meteors = meteor.get_split_meteors()
@@ -176,7 +267,8 @@ class Game:
                                 )
                                 self.meteors.append(split_meteor)
                         
-                        self.score += meteor.config.get("score", 10)
+                        score_value = meteor.config.get("score", 10)
+                        self.add_score_with_combo(score_value, "destroy")
                         self.meteors.remove(meteor)
                     
                     self.bullets.remove(bullet)
@@ -192,6 +284,9 @@ class Game:
                 if self.has_shield:
                     self.particle_system.create_collision(meteor_center[0], meteor_center[1], 25)
                     
+                    if self.screen_shake:
+                        self.screen_shake.add_trauma(0.25)
+                    
                     if meteor.take_damage():
                         self.particle_system.create_explosion(
                             meteor_center[0], meteor_center[1], 25
@@ -206,7 +301,8 @@ class Game:
                                 )
                                 self.meteors.append(split_meteor)
                         
-                        self.score += meteor.config.get("score", 10)
+                        score_value = meteor.config.get("score", 10)
+                        self.add_score_with_combo(score_value, "shield_destroy")
                     
                     self.meteors.remove(meteor)
                     continue
@@ -214,6 +310,9 @@ class Game:
                 if not self.collision_happened:
                     self.particle_system.create_collision(ship_center[0], ship_center[1], 50)
                     self.particle_system.create_collision(meteor_center[0], meteor_center[1], 35)
+                    
+                    if self.screen_shake:
+                        self.screen_shake.add_trauma(0.7)
                     
                     if meteor.take_damage():
                         if meteor.can_split():
@@ -226,6 +325,8 @@ class Game:
                                 self.meteors.append(split_meteor)
                     
                     self.meteors.remove(meteor)
+                    
+                    self.reset_combo()
                     
                     self.collision_x = (ship_center[0] + meteor_center[0]) // 2
                     self.collision_y = (ship_center[1] + meteor_center[1]) // 2
@@ -258,6 +359,9 @@ class Game:
                         powerup_center[0], powerup_center[1], 3
                     )
                 
+                if self.screen_shake:
+                    self.screen_shake.add_trauma(0.1)
+                
                 if powerup.type == POWERUP_SHIELD:
                     self.has_shield = True
                     self.shield_duration = powerup.config["duration"]
@@ -282,6 +386,22 @@ class Game:
         return False
     
     def update(self, keys):
+        if self.starfield:
+            self.starfield.update()
+        
+        if self.screen_shake:
+            self.shake_offset_x, self.shake_offset_y, self.shake_angle = self.screen_shake.update()
+        else:
+            self.shake_offset_x = 0
+            self.shake_offset_y = 0
+            self.shake_angle = 0
+        
+        if self.combo_system:
+            self.combo_system.update()
+        
+        if self.difficulty_system:
+            self.difficulty_system.update(self.score)
+        
         if not self.game_started or self.paused:
             self.particle_system.update()
             return
@@ -314,6 +434,10 @@ class Game:
             if self.collision_delay <= 0:
                 self.game_over = True
                 self.show_flash = False
+                
+                if self.score > self.high_score:
+                    self.high_score = self.score
+                    self._save_high_score()
             return
         
         if self.has_shield:
@@ -353,10 +477,16 @@ class Game:
                 self.bullets.remove(bullet)
         
         for meteor in self.meteors[:]:
+            speed_multiplier = 1.0
+            if self.difficulty_system:
+                speed_multiplier = self.difficulty_system.get_meteor_speed_multiplier()
+            
             if self.meteor_slow and meteor.speed > 2:
-                meteor.y += meteor.speed * 0.5
+                meteor.y += meteor.speed * 0.5 * speed_multiplier
                 meteor.rect.y = meteor.y
             else:
+                meteor.y += meteor.speed * speed_multiplier
+                meteor.rect.y = meteor.y
                 meteor.update()
             
             if meteor.y > SCREEN_HEIGHT:
@@ -365,8 +495,7 @@ class Game:
                 self.meteors.remove(meteor)
                 
                 score_value = meteor.config.get("score", 10)
-                self.score += score_value
-                self.text_manager.add_score_text(80, 30, score_value)
+                self.add_score_with_combo(score_value, "dodge")
         
         for powerup in self.powerups[:]:
             if not powerup.update():
@@ -385,49 +514,91 @@ class Game:
                 self.warning_flash_timer = 0
     
     def draw_start_screen(self, surface, mouse_pos):
-        surface.fill(BLACK)
+        self.starfield.draw(surface)
         
         title_text = get_large_font().render("躲避陨石", True, YELLOW)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 120))
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 180))
+        
+        glow_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        for i in range(5, 0, -1):
+            alpha = 20 + i * 10
+            offset = i * 2
+            temp_surf = get_large_font().render("躲避陨石", True, (*YELLOW, alpha))
+            temp_rect = temp_surf.get_rect(center=(SCREEN_WIDTH // 2 + offset, SCREEN_HEIGHT // 2 - 180 + offset))
+            glow_surface.blit(temp_surf, temp_rect)
+        
+        surface.blit(glow_surface, (0, 0))
         surface.blit(title_text, title_rect)
+        
+        if self.high_score > 0:
+            high_score_text = get_font().render(f"最高分: {self.high_score}", True, (255, 215, 0))
+            high_score_rect = high_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 110))
+            surface.blit(high_score_text, high_score_rect)
         
         instruction_text1 = get_small_font().render("使用左右箭头键控制飞船", True, WHITE)
         instruction_rect1 = instruction_text1.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
         surface.blit(instruction_text1, instruction_rect1)
         
-        instruction_text2 = get_small_font().render("按 P 键暂停游戏", True, WHITE)
+        instruction_text2 = get_small_font().render("按空格发射子弹", True, WHITE)
         instruction_rect2 = instruction_text2.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 15))
         surface.blit(instruction_text2, instruction_rect2)
+        
+        instruction_text3 = get_small_font().render("按 P 键暂停游戏", True, WHITE)
+        instruction_rect3 = instruction_text3.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 20))
+        surface.blit(instruction_text3, instruction_rect3)
         
         self.start_button.draw(surface, mouse_pos)
     
     def draw_pause_screen(self, surface, mouse_pos):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
+        overlay.fill((0, 0, 0, 200))
         surface.blit(overlay, (0, 0))
         
         pause_text = get_large_font().render("游戏暂停", True, YELLOW)
-        pause_rect = pause_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
+        pause_rect = pause_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
         surface.blit(pause_text, pause_rect)
+        
+        current_score_text = get_medium_font().render(f"当前分数: {self.score}", True, WHITE)
+        current_score_rect = current_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 40))
+        surface.blit(current_score_text, current_score_rect)
         
         self.pause_continue_button.draw(surface, mouse_pos)
         self.pause_quit_button.draw(surface, mouse_pos)
     
     def draw_game_over_screen(self, surface, mouse_pos):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))
+        overlay.fill((0, 0, 0, 255))
         surface.blit(overlay, (0, 0))
         
         game_over_text = get_large_font().render("游戏结束!", True, RED)
-        game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
+        game_over_rect = game_over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 180))
         surface.blit(game_over_text, game_over_rect)
         
         final_score_text = get_medium_font().render(f"最终分数: {self.score}", True, WHITE)
-        final_score_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 30))
+        final_score_rect = final_score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 120))
         surface.blit(final_score_text, final_score_rect)
         
+        current_y = SCREEN_HEIGHT // 2 - 60
+        
+        if self.score == self.high_score and self.score > 0:
+            new_record_text = get_font().render("新纪录!", True, (255, 215, 0))
+            new_record_rect = new_record_text.get_rect(center=(SCREEN_WIDTH // 2, current_y))
+            surface.blit(new_record_text, new_record_rect)
+            current_y += 45
+        
+        high_score_text = get_font().render(f"最高分: {self.high_score}", True, (255, 215, 0))
+        high_score_rect = high_score_text.get_rect(center=(SCREEN_WIDTH // 2, current_y))
+        surface.blit(high_score_text, high_score_rect)
+        current_y += 45
+        
+        if self.combo_system:
+            max_combo_text = get_font().render(f"最高连击: {self.combo_system.get_max_combo()}", True, (255, 150, 150))
+            max_combo_rect = max_combo_text.get_rect(center=(SCREEN_WIDTH // 2, current_y))
+            surface.blit(max_combo_text, max_combo_rect)
+            current_y += 50
+        
         restart_hint = get_small_font().render("按 R 键重新开始 或 点击按钮", True, GRAY)
-        restart_hint_rect = restart_hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 10))
+        restart_hint_rect = restart_hint.get_rect(center=(SCREEN_WIDTH // 2, current_y))
         surface.blit(restart_hint, restart_hint_rect)
         
         self.game_over_restart_button.draw(surface, mouse_pos)
@@ -533,35 +704,16 @@ class Game:
             
             surface.blit(shield_surface, (0, 0))
     
-    def draw(self, surface, mouse_pos):
-        surface.fill(BLACK)
-        
-        if not self.game_started:
-            self.draw_start_screen(surface, mouse_pos)
-            return
-        
-        self.particle_system.draw(surface)
-        
-        if not (self.collision_happened and self.collision_delay > 0):
-            for powerup in self.powerups:
-                powerup.draw(surface)
-            
-            for meteor in self.meteors:
-                meteor.draw(surface)
-            
-            for bullet in self.bullets:
-                bullet.draw(surface)
-            
-            if self.has_shield:
-                self.draw_ship_with_shield(surface)
-            else:
-                self.ship.draw(surface)
-        
+    def draw_game_ui(self, surface):
         score_text = get_font().render(f"分数: {self.score}", True, WHITE)
         surface.blit(score_text, (10, 10))
         
         lives_text = get_font().render(f"生命: {self.lives}", True, RED if self.lives == 1 else GREEN)
         surface.blit(lives_text, (10, 50))
+        
+        if self.difficulty_system:
+            level_text = get_small_font().render(f"等级: {self.difficulty_system.get_level()}", True, (200, 200, 100))
+            surface.blit(level_text, (SCREEN_WIDTH - 120, 50))
         
         self.draw_powerup_status(surface)
         
@@ -570,11 +722,15 @@ class Game:
             bullet_hint_rect = bullet_hint.get_rect(center=(SCREEN_WIDTH // 2, 15))
             surface.blit(bullet_hint, bullet_hint_rect)
         
+        if self.combo_system and self.combo_system.get_combo() > 0:
+            self.combo_system.draw(surface, SCREEN_WIDTH - 100, 120)
+        
         pause_hint = get_small_font().render("按 P 暂停", True, GRAY)
         surface.blit(pause_hint, (SCREEN_WIDTH - 120, 10))
         
         self.text_manager.draw(surface)
-        
+    
+    def draw_warning_effects(self, surface):
         if self.warning_flash:
             flash_frame = self.warning_flash_timer // self.warning_flash_interval
             if flash_frame % 2 == 0:
@@ -600,8 +756,54 @@ class Game:
             collision_hint = get_small_font().render("碰撞!", True, YELLOW)
             collision_hint_rect = collision_hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
             surface.blit(collision_hint, collision_hint_rect)
+    
+    def draw_difficulty_level_up(self, surface):
+        if self.difficulty_system and self.difficulty_system.should_display_level_up():
+            self.difficulty_system.draw_level_up(surface, SCREEN_WIDTH, SCREEN_HEIGHT)
+    
+    def draw(self, surface, mouse_pos):
+        if self.shake_offset_x != 0 or self.shake_offset_y != 0:
+            draw_surface = self.render_surface
+            draw_surface.fill(BLACK)
+        else:
+            draw_surface = surface
         
-        if self.paused:
-            self.draw_pause_screen(surface, mouse_pos)
+        if self.starfield:
+            self.starfield.draw(draw_surface)
+        
+        if not self.game_started:
+            self.draw_start_screen(draw_surface, mouse_pos)
         elif self.game_over:
-            self.draw_game_over_screen(surface, mouse_pos)
+            self.draw_game_over_screen(draw_surface, mouse_pos)
+        else:
+            self.particle_system.draw(draw_surface)
+            
+            if not (self.collision_happened and self.collision_delay > 0):
+                for powerup in self.powerups:
+                    powerup.draw(draw_surface)
+                
+                for meteor in self.meteors:
+                    meteor.draw(draw_surface)
+                
+                for bullet in self.bullets:
+                    bullet.draw(draw_surface)
+                
+                if self.has_shield:
+                    self.draw_ship_with_shield(draw_surface)
+                else:
+                    self.ship.draw(draw_surface)
+            
+            self.draw_game_ui(draw_surface)
+            self.draw_warning_effects(draw_surface)
+            self.draw_difficulty_level_up(draw_surface)
+            
+            if self.paused:
+                self.draw_pause_screen(draw_surface, mouse_pos)
+        
+        if (self.shake_offset_x != 0 or self.shake_offset_y != 0 or self.shake_angle != 0) and draw_surface is not surface:
+            if abs(self.shake_angle) > 0.01:
+                rotated_surface = pygame.transform.rotate(draw_surface, self.shake_angle)
+                rotated_rect = rotated_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                surface.blit(rotated_surface, (rotated_rect.x + self.shake_offset_x, rotated_rect.y + self.shake_offset_y))
+            else:
+                surface.blit(draw_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
