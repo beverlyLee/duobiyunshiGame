@@ -4,7 +4,8 @@ import pygame
 from game.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     WHITE,
-    POWERUP_CONFIG
+    POWERUP_CONFIG,
+    POWERUP_SHIELD, POWERUP_BULLET, POWERUP_SLOW
 )
 from game.core.utils import get_small_font
 
@@ -12,7 +13,7 @@ class PowerUp:
     def __init__(self, powerup_type=None):
         if powerup_type is None:
             types = list(POWERUP_CONFIG.keys())
-            weights = [30, 25, 25, 20]
+            weights = [35, 35, 30]
             powerup_type = random.choices(types, weights=weights, k=1)[0]
         
         self.type = powerup_type

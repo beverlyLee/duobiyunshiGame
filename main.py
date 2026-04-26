@@ -39,6 +39,9 @@ def main():
                 elif event.key == pygame.K_ESCAPE:
                     if game.paused:
                         game.paused = False
+                elif event.key == pygame.K_SPACE:
+                    if game.game_started and not game.paused and not game.game_over:
+                        game.shoot_bullet()
         
         if not game.game_started:
             if game.start_button.is_clicked(mouse_pos, mouse_clicked):

@@ -6,14 +6,16 @@ import sys
 from game.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT, FPS,
     WHITE, BLACK, RED, GREEN, YELLOW, GRAY,
-    POWERUP_SHIELD, POWERUP_SPEED, POWERUP_SLOW, POWERUP_SCORE,
-    POWERUP_CONFIG
+    POWERUP_SHIELD, POWERUP_BULLET, POWERUP_SLOW,
+    POWERUP_CONFIG, SHIELD_BLUE, BULLET_YELLOW, SLOW_GREEN,
+    METEOR_CONFIG, METEOR_SPLIT
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.entities.particle import ParticleSystem
 from game.entities.ship import Ship
 from game.entities.meteor import Meteor
 from game.entities.powerup import PowerUp
+from game.entities.bullet import Bullet
 from game.ui.button import Button
 from game.ui.floating_text import FloatingTextManager
 
@@ -22,6 +24,7 @@ class Game:
         self.ship = Ship()
         self.meteors = []
         self.powerups = []
+        self.bullets = []
         self.particle_system = ParticleSystem()
         self.text_manager = FloatingTextManager()
         self.score = 0
@@ -53,15 +56,18 @@ class Game:
         
         self.has_shield = False
         self.shield_duration = 0
-        self.shield_color = POWERUP_CONFIG[POWERUP_SHIELD]["color"]
+        self.shield_flash_timer = 0
+        self.shield_flash_interval = 8
+        self.show_shield_outline = True
+        self.shield_color = SHIELD_BLUE
         
-        self.speed_boost = False
-        self.speed_boost_duration = 0
-        self.base_speed = 7
+        self.has_bullet = False
+        self.bullet_duration = 0
+        self.bullet_cooldown = 0
+        self.bullet_cooldown_frames = 15
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
-        self.base_meteor_speed_range = (3, 8)
         
         self.start_button = Button(
             SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20,
@@ -90,6 +96,7 @@ class Game:
         self.ship = Ship()
         self.meteors = []
         self.powerups = []
+        self.bullets = []
         self.particle_system = ParticleSystem()
         self.text_manager = FloatingTextManager()
         self.score = 0
@@ -113,12 +120,22 @@ class Game:
         
         self.has_shield = False
         self.shield_duration = 0
+        self.shield_flash_timer = 0
+        self.show_shield_outline = True
         
-        self.speed_boost = False
-        self.speed_boost_duration = 0
+        self.has_bullet = False
+        self.bullet_duration = 0
+        self.bullet_cooldown = 0
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
+    
+    def shoot_bullet(self):
+        if self.has_bullet and self.bullet_cooldown <= 0:
+            ship_center_x = self.ship.x + self.ship.width // 2
+            ship_top_y = self.ship.y
+            self.bullets.append(Bullet(ship_center_x, ship_top_y))
+            self.bullet_cooldown = self.bullet_cooldown_frames
     
     def spawn_meteor(self):
         self.meteor_timer += 1
@@ -135,6 +152,36 @@ class Game:
             self.powerup_timer = 0
             self.powerup_interval = FPS * random.randint(3, 6)
     
+    def check_bullet_collisions(self):
+        for bullet in self.bullets[:]:
+            for meteor in self.meteors[:]:
+                if bullet.rect.colliderect(meteor.rect):
+                    meteor_center = meteor.get_center()
+                    
+                    self.particle_system.create_explosion(
+                        meteor_center[0], meteor_center[1], 8
+                    )
+                    
+                    if meteor.take_damage():
+                        self.particle_system.create_explosion(
+                            meteor_center[0], meteor_center[1], 25
+                        )
+                        
+                        if meteor.can_split():
+                            split_meteors = meteor.get_split_meteors()
+                            for split_meteor in split_meteors:
+                                split_center = split_meteor.get_center()
+                                self.particle_system.create_explosion(
+                                    split_center[0], split_center[1], 5
+                                )
+                                self.meteors.append(split_meteor)
+                        
+                        self.score += meteor.config.get("score", 10)
+                        self.meteors.remove(meteor)
+                    
+                    self.bullets.remove(bullet)
+                    break
+    
     def check_collisions(self):
         for meteor in self.meteors[:]:
             if self.ship.rect.colliderect(meteor.rect):
@@ -143,21 +190,42 @@ class Game:
                 meteor_center = meteor.get_center()
                 
                 if self.has_shield:
-                    self.has_shield = False
-                    self.shield_duration = 0
                     self.particle_system.create_collision(meteor_center[0], meteor_center[1], 25)
+                    
+                    if meteor.take_damage():
+                        self.particle_system.create_explosion(
+                            meteor_center[0], meteor_center[1], 25
+                        )
+                        
+                        if meteor.can_split():
+                            split_meteors = meteor.get_split_meteors()
+                            for split_meteor in split_meteors:
+                                split_center = split_meteor.get_center()
+                                self.particle_system.create_explosion(
+                                    split_center[0], split_center[1], 5
+                                )
+                                self.meteors.append(split_meteor)
+                        
+                        self.score += meteor.config.get("score", 10)
+                    
                     self.meteors.remove(meteor)
-                    self.text_manager.add_text(
-                        SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
-                        "护盾抵消！",
-                        self.shield_color, duration=90, float_speed=0, font_size=40
-                    )
-                    self.particle_system.create_engine_trail(ship_center[0], ship_center[1], 0)
                     continue
                 
                 if not self.collision_happened:
                     self.particle_system.create_collision(ship_center[0], ship_center[1], 50)
                     self.particle_system.create_collision(meteor_center[0], meteor_center[1], 35)
+                    
+                    if meteor.take_damage():
+                        if meteor.can_split():
+                            split_meteors = meteor.get_split_meteors()
+                            for split_meteor in split_meteors:
+                                split_center = split_meteor.get_center()
+                                self.particle_system.create_explosion(
+                                    split_center[0], split_center[1], 5
+                                )
+                                self.meteors.append(split_meteor)
+                    
+                    self.meteors.remove(meteor)
                     
                     self.collision_x = (ship_center[0] + meteor_center[0]) // 2
                     self.collision_y = (ship_center[1] + meteor_center[1]) // 2
@@ -170,7 +238,6 @@ class Game:
                         self.flash_timer = 0
                         self.collision_particle_timer = 0
                     else:
-                        self.meteors.remove(meteor)
                         self.warning_flash = True
                         self.warning_flash_timer = 0
                         self.text_manager.add_text(
@@ -194,15 +261,15 @@ class Game:
                 if powerup.type == POWERUP_SHIELD:
                     self.has_shield = True
                     self.shield_duration = powerup.config["duration"]
-                elif powerup.type == POWERUP_SPEED:
-                    self.speed_boost = True
-                    self.speed_boost_duration = powerup.config["duration"]
+                    self.shield_flash_timer = 0
+                    self.show_shield_outline = True
+                elif powerup.type == POWERUP_BULLET:
+                    self.has_bullet = True
+                    self.bullet_duration = powerup.config["duration"]
+                    self.bullet_cooldown = 0
                 elif powerup.type == POWERUP_SLOW:
                     self.meteor_slow = True
                     self.meteor_slow_duration = powerup.config["duration"]
-                elif powerup.type == POWERUP_SCORE:
-                    self.score += 50
-                    self.text_manager.add_score_text(80, 30, 50)
                 
                 self.text_manager.add_text(
                     SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
@@ -251,16 +318,21 @@ class Game:
         
         if self.has_shield:
             self.shield_duration -= 1
+            self.shield_flash_timer += 1
+            if self.shield_flash_timer >= self.shield_flash_interval:
+                self.show_shield_outline = not self.show_shield_outline
+                self.shield_flash_timer = 0
             if self.shield_duration <= 0:
                 self.has_shield = False
+                self.show_shield_outline = True
         
-        if self.speed_boost:
-            self.speed_boost_duration -= 1
-            if self.speed_boost_duration <= 0:
-                self.speed_boost = False
-            self.ship.speed = self.base_speed * 1.8
-        else:
-            self.ship.speed = self.base_speed
+        if self.has_bullet:
+            self.bullet_duration -= 1
+            if self.bullet_cooldown > 0:
+                self.bullet_cooldown -= 1
+            if self.bullet_duration <= 0:
+                self.has_bullet = False
+                self.bullet_cooldown = 0
         
         if self.meteor_slow:
             self.meteor_slow_duration -= 1
@@ -276,9 +348,14 @@ class Game:
         self.spawn_meteor()
         self.spawn_powerup()
         
+        for bullet in self.bullets[:]:
+            if not bullet.update():
+                self.bullets.remove(bullet)
+        
         for meteor in self.meteors[:]:
             if self.meteor_slow and meteor.speed > 2:
                 meteor.y += meteor.speed * 0.5
+                meteor.rect.y = meteor.y
             else:
                 meteor.update()
             
@@ -286,13 +363,16 @@ class Game:
                 meteor_center = meteor.get_center()
                 self.particle_system.create_explosion(meteor_center[0], SCREEN_HEIGHT - 20, 12)
                 self.meteors.remove(meteor)
-                self.score += 10
-                self.text_manager.add_score_text(80, 30, 10)
+                
+                score_value = meteor.config.get("score", 10)
+                self.score += score_value
+                self.text_manager.add_score_text(80, 30, score_value)
         
         for powerup in self.powerups[:]:
             if not powerup.update():
                 self.powerups.remove(powerup)
         
+        self.check_bullet_collisions()
         self.check_collisions()
         self.check_powerup_collisions()
         self.particle_system.update()
@@ -353,6 +433,106 @@ class Game:
         self.game_over_restart_button.draw(surface, mouse_pos)
         self.game_over_quit_button.draw(surface, mouse_pos)
     
+    def draw_powerup_status(self, surface):
+        status_x = 10
+        status_y = 90
+        status_width = 200
+        status_height = 35
+        status_spacing = 45
+        
+        active_powerups = []
+        
+        if self.has_shield:
+            active_powerups.append({
+                "type": "shield",
+                "duration": self.shield_duration,
+                "color": SHIELD_BLUE,
+                "name": "护盾",
+                "icon": "🛡️"
+            })
+        
+        if self.has_bullet:
+            active_powerups.append({
+                "type": "bullet",
+                "duration": self.bullet_duration,
+                "color": BULLET_YELLOW,
+                "name": "子弹",
+                "icon": "⚡"
+            })
+        
+        if self.meteor_slow:
+            active_powerups.append({
+                "type": "slow",
+                "duration": self.meteor_slow_duration,
+                "color": SLOW_GREEN,
+                "name": "减速",
+                "icon": "⏱️"
+            })
+        
+        for i, powerup in enumerate(active_powerups):
+            current_y = status_y + i * status_spacing
+            
+            bg_surface = pygame.Surface((status_width, status_height), pygame.SRCALPHA)
+            bg_surface.fill((*powerup["color"], 80))
+            pygame.draw.rect(bg_surface, (*powerup["color"], 180), (0, 0, status_width, status_height), 2)
+            surface.blit(bg_surface, (status_x, current_y))
+            
+            icon_text = get_small_font().render(powerup["icon"], True, WHITE)
+            icon_rect = icon_text.get_rect(midleft=(status_x + 15, current_y + status_height // 2))
+            surface.blit(icon_text, icon_rect)
+            
+            seconds_remaining = max(0, (powerup["duration"] + FPS - 1) // FPS)
+            time_text = get_small_font().render(f"{seconds_remaining}s", True, WHITE)
+            time_rect = time_text.get_rect(midright=(status_x + status_width - 10, current_y + status_height // 2))
+            surface.blit(time_text, time_rect)
+            
+            progress_width = status_width - 60
+            progress_x = status_x + 40
+            progress_y = current_y + status_height - 8
+            
+            max_duration = POWERUP_CONFIG[POWERUP_SHIELD]["duration"] if powerup["type"] == "shield" else \
+                          POWERUP_CONFIG[POWERUP_BULLET]["duration"] if powerup["type"] == "bullet" else \
+                          POWERUP_CONFIG[POWERUP_SLOW]["duration"]
+            
+            progress = powerup["duration"] / max_duration
+            current_progress_width = int(progress_width * progress)
+            
+            pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, 4))
+            if current_progress_width > 0:
+                pygame.draw.rect(surface, powerup["color"], (progress_x, progress_y, current_progress_width, 4))
+    
+    def draw_ship_with_shield(self, surface):
+        self.ship.draw(surface)
+        
+        if self.has_shield and self.show_shield_outline:
+            ship_center_x = self.ship.x + self.ship.width // 2
+            ship_center_y = self.ship.y + self.ship.height // 2
+            
+            shield_radius = max(self.ship.width, self.ship.height) // 2 + 15
+            
+            shield_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            
+            pygame.draw.polygon(
+                shield_surface, 
+                (*self.shield_color, 200),
+                [
+                    (ship_center_x, self.ship.y - 8),
+                    (self.ship.x - 8, self.ship.y + self.ship.height + 8),
+                    (self.ship.x + self.ship.width + 8, self.ship.y + self.ship.height + 8)
+                ],
+                3
+            )
+            
+            pygame.draw.circle(
+                shield_surface,
+                (*self.shield_color, 100),
+                (ship_center_x, ship_center_y),
+                shield_radius,
+                2
+            )
+            
+            surface.blit(shield_surface, (0, 0))
+    
     def draw(self, surface, mouse_pos):
         surface.fill(BLACK)
         
@@ -369,35 +549,13 @@ class Game:
             for meteor in self.meteors:
                 meteor.draw(surface)
             
-            self.ship.draw(surface)
+            for bullet in self.bullets:
+                bullet.draw(surface)
             
             if self.has_shield:
-                ship_center_x = self.ship.x + self.ship.width // 2
-                ship_center_y = self.ship.y + self.ship.height // 2
-                
-                shield_radius = max(self.ship.width, self.ship.height) // 2 + 20
-                shield_pulse = 5 * math.sin(pygame.time.get_ticks() * 0.005)
-                shield_radius += shield_pulse
-                
-                shield_alpha = 100 + int(50 * math.sin(pygame.time.get_ticks() * 0.008))
-                
-                shield_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-                pygame.draw.circle(
-                    shield_surface, 
-                    (*self.shield_color, shield_alpha),
-                    (ship_center_x, ship_center_y),
-                    shield_radius,
-                    3
-                )
-                surface.blit(shield_surface, (0, 0))
-                
-                pygame.draw.circle(
-                    surface,
-                    (*self.shield_color, 150),
-                    (ship_center_x, ship_center_y),
-                    shield_radius - 10,
-                    2
-                )
+                self.draw_ship_with_shield(surface)
+            else:
+                self.ship.draw(surface)
         
         score_text = get_font().render(f"分数: {self.score}", True, WHITE)
         surface.blit(score_text, (10, 10))
@@ -405,23 +563,12 @@ class Game:
         lives_text = get_font().render(f"生命: {self.lives}", True, RED if self.lives == 1 else GREEN)
         surface.blit(lives_text, (10, 50))
         
-        effect_y = 90
-        if self.has_shield:
-            shield_remaining = self.shield_duration // FPS
-            effect_text = get_small_font().render(f"护盾: {shield_remaining + 1}s", True, self.shield_color)
-            surface.blit(effect_text, (10, effect_y))
-            effect_y += 25
+        self.draw_powerup_status(surface)
         
-        if self.speed_boost:
-            speed_remaining = self.speed_boost_duration // FPS
-            effect_text = get_small_font().render(f"加速: {speed_remaining + 1}s", True, YELLOW)
-            surface.blit(effect_text, (10, effect_y))
-            effect_y += 25
-        
-        if self.meteor_slow:
-            slow_remaining = self.meteor_slow_duration // FPS
-            effect_text = get_small_font().render(f"减速: {slow_remaining + 1}s", True, POWERUP_CONFIG[POWERUP_SLOW]["color"])
-            surface.blit(effect_text, (10, effect_y))
+        if self.has_bullet:
+            bullet_hint = get_small_font().render("按空格发射子弹", True, BULLET_YELLOW)
+            bullet_hint_rect = bullet_hint.get_rect(center=(SCREEN_WIDTH // 2, 15))
+            surface.blit(bullet_hint, bullet_hint_rect)
         
         pause_hint = get_small_font().render("按 P 暂停", True, GRAY)
         surface.blit(pause_hint, (SCREEN_WIDTH - 120, 10))
