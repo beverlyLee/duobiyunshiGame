@@ -73,7 +73,7 @@ class Game:
         self.has_bullet = False
         self.bullet_duration = 0
         self.bullet_cooldown = 0
-        self.bullet_cooldown_frames = 15
+        self.bullet_cooldown_frames = 3
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
@@ -262,7 +262,7 @@ class Game:
                     if self.screen_shake:
                         self.screen_shake.add_trauma(0.15)
                     
-                    if meteor.take_damage():
+                    if meteor.take_damage(2):
                         self.particle_system.create_explosion(
                             meteor_center[0], meteor_center[1], 25
                         )
@@ -498,6 +498,8 @@ class Game:
             if self.move_sound_cooldown <= 0:
                 self.audio_manager.play_sound(SoundType.MOVE)
                 self.move_sound_cooldown = self.move_sound_interval
+            
+            self.shoot_bullet()
         else:
             self.move_sound_cooldown = 0
         
