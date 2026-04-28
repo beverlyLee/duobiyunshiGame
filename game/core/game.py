@@ -8,7 +8,9 @@ from game.config import (
     WHITE, BLACK, RED, GREEN, YELLOW, GRAY,
     POWERUP_SHIELD, POWERUP_BULLET, POWERUP_SLOW,
     POWERUP_CONFIG, SHIELD_BLUE, BULLET_YELLOW, SLOW_GREEN,
-    METEOR_CONFIG, METEOR_SPLIT
+    METEOR_CONFIG, METEOR_SPLIT,
+    METEOR_TRACKER, METEOR_EXPLOSIVE, METEOR_ARMORED,
+    SPECIAL_METEOR_CONFIG
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
@@ -45,6 +47,14 @@ class Game:
         self.meteor_interval = 60
         self.game_started = False
         self.collision_happened = False
+        
+        self.special_meteor_counters = {
+            METEOR_TRACKER: 0,
+            METEOR_ARMORED: 0,
+            METEOR_EXPLOSIVE: 0,
+        }
+        self.current_level = 1
+        self.last_checked_level = 1
         
         self.collision_delay = 0
         self.collision_delay_frames = FPS * 2
@@ -160,6 +170,14 @@ class Game:
         self.game_started = True
         self.collision_happened = False
         
+        self.special_meteor_counters = {
+            METEOR_TRACKER: 0,
+            METEOR_ARMORED: 0,
+            METEOR_EXPLOSIVE: 0,
+        }
+        self.current_level = 1
+        self.last_checked_level = 1
+        
         self.collision_delay = 0
         self.flash_timer = 0
         self.show_flash = False
@@ -229,6 +247,45 @@ class Game:
             self.bullet_cooldown = self.bullet_cooldown_frames
             self.audio_manager.play_sound(SoundType.SHOOT)
     
+    def _update_level_and_counters(self):
+        if self.difficulty_system:
+            self.current_level = self.difficulty_system.get_level()
+            
+            if self.current_level != self.last_checked_level:
+                self.last_checked_level = self.current_level
+                for meteor_type in self.special_meteor_counters:
+                    self.special_meteor_counters[meteor_type] = 0
+    
+    def _can_spawn_special_meteor(self, meteor_type):
+        if not self.difficulty_system:
+            return False
+        
+        special_config = SPECIAL_METEOR_CONFIG.get(meteor_type)
+        if not special_config:
+            return False
+        
+        if self.current_level < special_config["min_level"]:
+            return False
+        
+        count = self.special_meteor_counters.get(meteor_type, 0)
+        max_count = random.randint(special_config["per_level_min"], special_config["per_level_max"])
+        
+        return count < max_count
+    
+    def _spawn_special_meteor(self, meteor_type):
+        if meteor_type == METEOR_TRACKER:
+            special_config = SPECIAL_METEOR_CONFIG.get(METEOR_TRACKER)
+            colors = special_config.get("colors", [])
+            color_override = random.choice(colors) if colors else None
+            new_meteor = Meteor(meteor_type=METEOR_TRACKER, ship=self.ship, color_override=color_override)
+        else:
+            new_meteor = Meteor(meteor_type=meteor_type, ship=self.ship)
+        
+        self.meteors.append(new_meteor)
+        self.special_meteor_counters[meteor_type] = self.special_meteor_counters.get(meteor_type, 0) + 1
+        
+        return new_meteor
+    
     def spawn_meteor(self):
         self.meteor_timer += 1
         
@@ -237,7 +294,20 @@ class Game:
             effective_interval = int(self.meteor_interval / self.difficulty_system.get_meteor_spawn_multiplier())
         
         if self.meteor_timer >= effective_interval:
-            self.meteors.append(Meteor())
+            self._update_level_and_counters()
+            
+            available_special = []
+            for meteor_type in [METEOR_TRACKER, METEOR_ARMORED, METEOR_EXPLOSIVE]:
+                if self._can_spawn_special_meteor(meteor_type):
+                    available_special.append(meteor_type)
+            
+            if available_special and random.random() < 0.25:
+                special_type = random.choice(available_special)
+                self._spawn_special_meteor(special_type)
+            else:
+                new_meteor = Meteor(ship=self.ship)
+                self.meteors.append(new_meteor)
+            
             self.meteor_timer = 0
             if self.meteor_interval > 20:
                 self.meteor_interval -= 0.5
@@ -248,6 +318,49 @@ class Game:
             self.powerups.append(PowerUp())
             self.powerup_timer = 0
             self.powerup_interval = FPS * random.randint(3, 6)
+    
+    def create_explosion_chain(self, source_meteor):
+        explosion_center = source_meteor.get_center()
+        explosion_radius = source_meteor.get_explosion_radius()
+        
+        self.particle_system.create_large_explosion(
+            explosion_center[0], explosion_center[1], explosion_radius
+        )
+        
+        if self.screen_shake:
+            self.screen_shake.add_trauma(0.6)
+        
+        for meteor in self.meteors[:]:
+            if meteor is source_meteor:
+                continue
+            
+            meteor_center = meteor.get_center()
+            dx = explosion_center[0] - meteor_center[0]
+            dy = explosion_center[1] - meteor_center[1]
+            distance = math.sqrt(dx * dx + dy * dy)
+            
+            if distance <= explosion_radius:
+                damage = source_meteor.explosion_damage
+                if meteor.take_damage(damage):
+                    self.particle_system.create_explosion(
+                        meteor_center[0], meteor_center[1], 20
+                    )
+                    
+                    if meteor.can_split():
+                        split_meteors = meteor.get_split_meteors()
+                        for split_meteor in split_meteors:
+                            split_center = split_meteor.get_center()
+                            self.particle_system.create_explosion(
+                                split_center[0], split_center[1], 5
+                            )
+                            self.meteors.append(split_meteor)
+                    
+                    if meteor.should_explode_on_destroy():
+                        self.create_explosion_chain(meteor)
+                    
+                    score_value = meteor.config.get("score", 10)
+                    self.add_score_with_combo(score_value, "explosion_destroy")
+                    self.meteors.remove(meteor)
     
     def check_bullet_collisions(self):
         for bullet in self.bullets[:]:
@@ -262,26 +375,34 @@ class Game:
                     if self.screen_shake:
                         self.screen_shake.add_trauma(0.15)
                     
+                    if meteor.is_explosive():
+                        meteor.activate_fuse()
+                    
                     if meteor.take_damage(2):
-                        self.particle_system.create_explosion(
-                            meteor_center[0], meteor_center[1], 25
-                        )
+                        if meteor.should_explode_on_destroy():
+                            self.create_explosion_chain(meteor)
+                        else:
+                            self.particle_system.create_explosion(
+                                meteor_center[0], meteor_center[1], 25
+                            )
+                            
+                            if self.screen_shake:
+                                self.screen_shake.add_trauma(0.3)
+                            
+                            if meteor.can_split():
+                                split_meteors = meteor.get_split_meteors()
+                                for split_meteor in split_meteors:
+                                    split_center = split_meteor.get_center()
+                                    self.particle_system.create_explosion(
+                                        split_center[0], split_center[1], 5
+                                    )
+                                    self.meteors.append(split_meteor)
+                            
+                            score_value = meteor.config.get("score", 10)
+                            self.add_score_with_combo(score_value, "destroy")
                         
-                        if self.screen_shake:
-                            self.screen_shake.add_trauma(0.3)
-                        
-                        if meteor.can_split():
-                            split_meteors = meteor.get_split_meteors()
-                            for split_meteor in split_meteors:
-                                split_center = split_meteor.get_center()
-                                self.particle_system.create_explosion(
-                                    split_center[0], split_center[1], 5
-                                )
-                                self.meteors.append(split_meteor)
-                        
-                        score_value = meteor.config.get("score", 10)
-                        self.add_score_with_combo(score_value, "destroy")
-                        self.meteors.remove(meteor)
+                        if meteor in self.meteors:
+                            self.meteors.remove(meteor)
                         self.audio_manager.play_sound(SoundType.EXPLOSION)
                     else:
                         self.audio_manager.play_sound(SoundType.HIT)
@@ -302,27 +423,37 @@ class Game:
                     if self.screen_shake:
                         self.screen_shake.add_trauma(0.25)
                     
+                    if meteor.is_explosive():
+                        meteor.activate_fuse()
+                    
                     if meteor.take_damage():
-                        self.particle_system.create_explosion(
-                            meteor_center[0], meteor_center[1], 25
-                        )
+                        if meteor.should_explode_on_destroy():
+                            self.create_explosion_chain(meteor)
+                        else:
+                            self.particle_system.create_explosion(
+                                meteor_center[0], meteor_center[1], 25
+                            )
+                            
+                            if meteor.can_split():
+                                split_meteors = meteor.get_split_meteors()
+                                for split_meteor in split_meteors:
+                                    split_center = split_meteor.get_center()
+                                    self.particle_system.create_explosion(
+                                        split_center[0], split_center[1], 5
+                                    )
+                                    self.meteors.append(split_meteor)
+                            
+                            score_value = meteor.config.get("score", 10)
+                            self.add_score_with_combo(score_value, "shield_destroy")
                         
-                        if meteor.can_split():
-                            split_meteors = meteor.get_split_meteors()
-                            for split_meteor in split_meteors:
-                                split_center = split_meteor.get_center()
-                                self.particle_system.create_explosion(
-                                    split_center[0], split_center[1], 5
-                                )
-                                self.meteors.append(split_meteor)
-                        
-                        score_value = meteor.config.get("score", 10)
-                        self.add_score_with_combo(score_value, "shield_destroy")
+                        if meteor in self.meteors:
+                            self.meteors.remove(meteor)
                         self.audio_manager.play_sound(SoundType.EXPLOSION)
                     else:
                         self.audio_manager.play_sound(SoundType.HIT)
                     
-                    self.meteors.remove(meteor)
+                    if meteor in self.meteors:
+                        self.meteors.remove(meteor)
                     continue
                 
                 if not self.collision_happened:
@@ -332,17 +463,24 @@ class Game:
                     if self.screen_shake:
                         self.screen_shake.add_trauma(0.7)
                     
-                    if meteor.take_damage():
-                        if meteor.can_split():
-                            split_meteors = meteor.get_split_meteors()
-                            for split_meteor in split_meteors:
-                                split_center = split_meteor.get_center()
-                                self.particle_system.create_explosion(
-                                    split_center[0], split_center[1], 5
-                                )
-                                self.meteors.append(split_meteor)
+                    if meteor.is_explosive():
+                        meteor.activate_fuse()
                     
-                    self.meteors.remove(meteor)
+                    if meteor.take_damage():
+                        if meteor.should_explode_on_destroy():
+                            self.create_explosion_chain(meteor)
+                        else:
+                            if meteor.can_split():
+                                split_meteors = meteor.get_split_meteors()
+                                for split_meteor in split_meteors:
+                                    split_center = split_meteor.get_center()
+                                    self.particle_system.create_explosion(
+                                        split_center[0], split_center[1], 5
+                                    )
+                                    self.meteors.append(split_meteor)
+                    
+                    if meteor in self.meteors:
+                        self.meteors.remove(meteor)
                     
                     self.reset_combo()
                     
@@ -525,6 +663,13 @@ class Game:
                 meteor.y += meteor.speed * speed_multiplier
                 meteor.rect.y = meteor.y
                 meteor.update()
+            
+            if meteor.is_explosive() and meteor.update_explosive():
+                self.create_explosion_chain(meteor)
+                if meteor in self.meteors:
+                    self.meteors.remove(meteor)
+                self.audio_manager.play_sound(SoundType.EXPLOSION)
+                continue
             
             if meteor.y > SCREEN_HEIGHT:
                 meteor_center = meteor.get_center()

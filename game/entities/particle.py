@@ -4,7 +4,7 @@ import pygame
 from game.config import (
     BLUE, LIGHT_BLUE, DARK_BLUE,
     ORANGE, YELLOW, RED,
-    DARK_RED
+    DARK_RED, WHITE
 )
 
 class Particle:
@@ -42,9 +42,46 @@ class Particle:
         pygame.draw.circle(temp_surface, alpha_color, (int(self.size) + 1, int(self.size) + 1), int(self.size))
         surface.blit(temp_surface, (int(self.x - self.size), int(self.y - self.size)))
 
+class Shockwave:
+    def __init__(self, x, y, max_radius, color, duration):
+        self.x = x
+        self.y = y
+        self.max_radius = max_radius
+        self.color = color
+        self.duration = duration
+        self.lifetime = duration
+        self.max_lifetime = duration
+        self.radius = 5
+        self.alpha = 255
+    
+    def update(self):
+        self.lifetime -= 1
+        
+        progress = 1 - (self.lifetime / self.max_lifetime)
+        self.radius = 5 + (self.max_radius - 5) * progress
+        self.alpha = int(200 * (1 - progress))
+        
+        return self.lifetime > 0
+    
+    def draw(self, surface):
+        if self.alpha <= 0:
+            return
+        
+        temp_surface = pygame.Surface((int(self.radius * 2) + 4, int(self.radius * 2) + 4), pygame.SRCALPHA)
+        alpha_color = (self.color[0], self.color[1], self.color[2], self.alpha)
+        pygame.draw.circle(
+            temp_surface,
+            alpha_color,
+            (int(self.radius) + 2, int(self.radius) + 2),
+            int(self.radius),
+            max(1, int(6 * (1 - self.lifetime / self.max_lifetime)) + 1)
+        )
+        surface.blit(temp_surface, (int(self.x - self.radius - 2), int(self.y - self.radius - 2)))
+
 class ParticleSystem:
     def __init__(self):
         self.particles = []
+        self.shockwaves = []
     
     def create_engine_trail(self, x, y, direction):
         for _ in range(2):
@@ -96,9 +133,73 @@ class ParticleSystem:
             )
             self.particles.append(particle)
     
+    def create_large_explosion(self, x, y, radius=120):
+        core_colors = [(255, 100, 0), ORANGE, YELLOW, RED, (255, 50, 0)]
+        
+        for _ in range(60):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(3, 10)
+            vx = speed * math.cos(angle)
+            vy = speed * math.sin(angle)
+            color = random.choice(core_colors)
+            size = random.uniform(5, 15)
+            lifetime = random.randint(40, 100)
+            particle = Particle(
+                x, y,
+                vx, vy,
+                color, size, lifetime,
+                fade_speed=2, shrink_speed=0.02
+            )
+            self.particles.append(particle)
+        
+        for _ in range(30):
+            angle = random.uniform(0, 2 * math.pi)
+            dist = random.uniform(0, radius * 0.6)
+            px = x + math.cos(angle) * dist
+            py = y + math.sin(angle) * dist
+            speed = random.uniform(1, 4)
+            vx = speed * math.cos(angle)
+            vy = speed * math.sin(angle)
+            color = random.choice([(255, 150, 50), (255, 200, 100), (255, 220, 150)])
+            size = random.uniform(3, 8)
+            lifetime = random.randint(20, 50)
+            particle = Particle(
+                px, py,
+                vx, vy,
+                color, size, lifetime,
+                fade_speed=3, shrink_speed=0.04
+            )
+            self.particles.append(particle)
+        
+        self.shockwaves.append(Shockwave(x, y, radius, (255, 150, 50), 40))
+        self.shockwaves.append(Shockwave(x, y, radius * 0.8, (255, 200, 100), 30))
+        self.shockwaves.append(Shockwave(x, y, radius * 0.6, WHITE, 20))
+    
+    def create_spark(self, x, y, direction):
+        for _ in range(3):
+            base_angle = math.atan2(direction[1], direction[0])
+            angle = base_angle + random.uniform(-0.3, 0.3)
+            speed = random.uniform(4, 8)
+            vx = speed * math.cos(angle)
+            vy = speed * math.sin(angle)
+            color = random.choice([YELLOW, ORANGE, WHITE])
+            size = random.uniform(2, 4)
+            lifetime = random.randint(15, 30)
+            particle = Particle(
+                x, y,
+                vx, vy,
+                color, size, lifetime,
+                fade_speed=5, shrink_speed=0.08
+            )
+            self.particles.append(particle)
+    
     def update(self):
         self.particles = [p for p in self.particles if p.update()]
+        self.shockwaves = [s for s in self.shockwaves if s.update()]
     
     def draw(self, surface):
+        for shockwave in self.shockwaves:
+            shockwave.draw(surface)
+        
         for particle in self.particles:
             particle.draw(surface)

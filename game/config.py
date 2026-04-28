@@ -50,11 +50,45 @@ METEOR_SMALL = "small"
 METEOR_MEDIUM = "medium"
 METEOR_LARGE = "large"
 METEOR_SPLIT = "split"
+METEOR_TRACKER = "tracker"
+METEOR_ARMORED = "armored"
+METEOR_EXPLOSIVE = "explosive"
 
 METEOR_LIGHT_BROWN = (205, 133, 63)
 METEOR_BROWN = (139, 69, 19)
 METEOR_DARK_BROWN = (101, 67, 33)
 METEOR_RED_BROWN = (178, 34, 34)
+METEOR_PURPLE = (138, 43, 226)
+METEOR_DARK_PURPLE = (75, 0, 130)
+METEOR_DARK_GRAY = (64, 64, 64)
+METEOR_SILVER = (192, 192, 192)
+METEOR_ORANGE = (255, 140, 0)
+METEOR_RED_ORANGE = (255, 69, 0)
+METEOR_GREEN = (34, 139, 34)
+METEOR_LIGHT_GREEN = (144, 238, 144)
+METEOR_BRIGHT_RED = (255, 0, 0)
+
+SPECIAL_METEOR_CONFIG = {
+    METEOR_TRACKER: {
+        "min_level": 3,
+        "per_level_min": 2,
+        "per_level_max": 4,
+        "colors": [
+            (METEOR_PURPLE, METEOR_DARK_PURPLE),
+            (METEOR_GREEN, METEOR_LIGHT_GREEN)
+        ]
+    },
+    METEOR_ARMORED: {
+        "min_level": 5,
+        "per_level_min": 1,
+        "per_level_max": 3,
+    },
+    METEOR_EXPLOSIVE: {
+        "min_level": 7,
+        "per_level_min": 1,
+        "per_level_max": 2,
+    }
+}
 
 def darken_color(color, factor=0.6):
     return (
@@ -114,5 +148,48 @@ METEOR_CONFIG = {
         "score": 15,
         "split_count": (2, 3),
         "split_type": METEOR_SMALL,
+    },
+    METEOR_TRACKER: {
+        "name": "追踪陨石",
+        "width_range": (25, 35),
+        "height_range": (25, 35),
+        "speed_range": (4, 7),
+        "hp": 2,
+        "color": METEOR_PURPLE,
+        "color_inner": METEOR_DARK_PURPLE,
+        "weight": 0,
+        "score": 25,
+        "tracking_speed": 2.0,
+        "tracking_start_y": 150,
+        "is_circular": True,
+    },
+    METEOR_ARMORED: {
+        "name": "装甲陨石",
+        "width_range": (45, 65),
+        "height_range": (45, 65),
+        "speed_range": (2, 4),
+        "hp": 5,
+        "armor": 0,
+        "color": METEOR_DARK_GRAY,
+        "color_inner": (105, 105, 105),
+        "armor_color": METEOR_SILVER,
+        "weight": 0,
+        "score": 40,
+        "metal_texture": True,
+    },
+    METEOR_EXPLOSIVE: {
+        "name": "爆炸陨石",
+        "width_range": (30, 45),
+        "height_range": (30, 45),
+        "speed_range": (3, 5),
+        "hp": 2,
+        "color": METEOR_BRIGHT_RED,
+        "color_inner": METEOR_RED_ORANGE,
+        "weight": 0,
+        "score": 30,
+        "explosion_radius": 120,
+        "explosion_damage": 1,
+        "fuse_time": 120,
+        "glow_color": METEOR_ORANGE,
     }
 }
