@@ -22,6 +22,11 @@ SHIELD_BLUE = (50, 150, 255)
 BULLET_YELLOW = (255, 215, 0)
 SLOW_GREEN = (50, 205, 50)
 
+PENETRATING_PURPLE = (148, 0, 211)
+FREEZE_CYAN = (0, 255, 255)
+ICE_BLUE = (135, 206, 250)
+BLUE_YELLOW_MIX = (200, 200, 100)
+
 POWERUP_CONFIG = {
     POWERUP_SHIELD: {
         "color": SHIELD_BLUE,
@@ -43,6 +48,21 @@ POWERUP_CONFIG = {
         "name": "陨石减速！",
         "duration": FPS * 7,
         "icon": "⏱️",
+    }
+}
+
+SYNERGY_CONFIG = {
+    "penetrating": {
+        "name": "穿透护盾！",
+        "color": BLUE_YELLOW_MIX,
+        "penetration_count": 3,
+        "size_multiplier": 1.2,
+    },
+    "freeze": {
+        "name": "冰冻子弹！",
+        "color": ICE_BLUE,
+        "freeze_duration": FPS * 1,
+        "freeze_chance": 0.3,
     }
 }
 
@@ -153,15 +173,18 @@ METEOR_CONFIG = {
         "name": "追踪陨石",
         "width_range": (25, 35),
         "height_range": (25, 35),
-        "speed_range": (4, 7),
+        "speed_range": (2, 4),
         "hp": 2,
         "color": METEOR_PURPLE,
         "color_inner": METEOR_DARK_PURPLE,
         "weight": 0,
-        "score": 25,
-        "tracking_speed": 2.0,
+        "score": 15,
+        "tracking_speed": 1.0,
         "tracking_start_y": 150,
         "is_circular": True,
+        "split_count": (2, 3),
+        "split_type": METEOR_SMALL,
+        "split_score": 5,
     },
     METEOR_ARMORED: {
         "name": "装甲陨石",
@@ -174,8 +197,9 @@ METEOR_CONFIG = {
         "color_inner": (105, 105, 105),
         "armor_color": METEOR_SILVER,
         "weight": 0,
-        "score": 40,
+        "score": 30,
         "metal_texture": True,
+        "bullet_damage_reduction": 0.5,
     },
     METEOR_EXPLOSIVE: {
         "name": "爆炸陨石",
@@ -186,9 +210,10 @@ METEOR_CONFIG = {
         "color": METEOR_BRIGHT_RED,
         "color_inner": METEOR_RED_ORANGE,
         "weight": 0,
-        "score": 30,
-        "explosion_radius": 120,
-        "explosion_damage": 1,
+        "score": 20,
+        "chain_explosion_bonus": 5,
+        "explosion_radius": 50,
+        "explosion_damage": 2,
         "fuse_time": 120,
         "glow_color": METEOR_ORANGE,
     }

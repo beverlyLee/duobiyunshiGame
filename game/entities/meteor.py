@@ -2,7 +2,7 @@ import random
 import math
 import pygame
 from game.config import (
-    SCREEN_WIDTH,
+    SCREEN_WIDTH, FREEZE_CYAN, ICE_BLUE,
     METEOR_CONFIG,
     METEOR_SMALL, METEOR_MEDIUM, METEOR_LARGE, METEOR_SPLIT,
     METEOR_TRACKER, METEOR_ARMORED, METEOR_EXPLOSIVE,
@@ -88,6 +88,14 @@ class Meteor:
         
         if self.is_armored():
             self.metal_shine_offset = random.random() * 360
+        
+        self.is_frozen = False
+        self.freeze_duration = 0
+        self.freeze_rotation = random.randint(0, 360)
+        
+        self.freeze_particles = []
+        self.freeze_pulse_phase = 0.0
+        self.freeze_transition_progress = 0.0
     
     def set_ship(self, ship):
         self.ship = ship
@@ -166,6 +174,82 @@ class Meteor:
             self.fuse_activated = True
             self.fuse_timer = 0
     
+    def freeze(self, duration):
+        self.is_frozen = True
+        self.freeze_duration = duration
+        self.freeze_rotation = self.rotation
+        self.freeze_transition_progress = 0.0
+        self.freeze_pulse_phase = 0.0
+        
+        self._create_freeze_particles()
+    
+    def _create_freeze_particles(self):
+        self.freeze_particles = []
+        center_x = self.x + self.width // 2
+        center_y = self.y + self.height // 2
+        
+        boundary_count = max(8, int(min(self.width, self.height) // 5))
+        for i in range(boundary_count):
+            angle = (i / boundary_count) * 2 * math.pi
+            dist_from_center = max(self.width, self.height) // 2 + random.randint(2, 8)
+            
+            x = center_x + math.cos(angle) * dist_from_center
+            y = center_y + math.sin(angle) * dist_from_center
+            
+            ice_type = random.choice(["spike", "flake", "crystal"])
+            
+            self.freeze_particles.append({
+                "type": "boundary",
+                "x": x,
+                "y": y,
+                "angle": angle,
+                "ice_type": ice_type,
+                "size": random.randint(3, 7),
+                "pulse_speed": random.uniform(0.05, 0.15),
+                "pulse_phase": random.random() * math.pi * 2,
+                "opacity": random.randint(150, 255),
+            })
+        
+        inner_count = random.randint(4, 8)
+        for i in range(inner_count):
+            offset_x = random.randint(-self.width // 3, self.width // 3)
+            offset_y = random.randint(-self.height // 3, self.height // 3)
+            
+            ice_type = random.choice(["flake", "crystal", "frost"])
+            
+            self.freeze_particles.append({
+                "type": "inner",
+                "x": center_x + offset_x,
+                "y": center_y + offset_y,
+                "ice_type": ice_type,
+                "size": random.randint(2, 5),
+                "pulse_speed": random.uniform(0.03, 0.1),
+                "pulse_phase": random.random() * math.pi * 2,
+                "opacity": random.randint(100, 200),
+                "float_speed": random.uniform(-0.1, 0.1),
+                "float_direction": random.choice([-1, 1]),
+            })
+        
+        float_count = random.randint(3, 6)
+        for i in range(float_count):
+            angle = random.random() * 2 * math.pi
+            dist_from_center = max(self.width, self.height) // 2 + random.randint(10, 20)
+            
+            self.freeze_particles.append({
+                "type": "floating",
+                "x": center_x + math.cos(angle) * dist_from_center,
+                "y": center_y + math.sin(angle) * dist_from_center,
+                "ice_type": "flake",
+                "size": random.randint(2, 4),
+                "float_speed": random.uniform(0.2, 0.5),
+                "float_angle": angle,
+                "orbit_radius": dist_from_center,
+                "orbit_speed": random.uniform(0.01, 0.03),
+                "opacity": random.randint(80, 150),
+                "pulse_speed": random.uniform(0.02, 0.08),
+                "pulse_phase": random.random() * math.pi * 2,
+            })
+    
     def get_explosion_radius(self):
         return self.explosion_radius
     
@@ -186,7 +270,19 @@ class Meteor:
         return darken_color_gradient(self.inner_color, self.hp, self.max_hp)
     
     def can_split(self):
-        return self.type == METEOR_SPLIT and "split_count" in self.config
+        return (self.type == METEOR_SPLIT or self.type == METEOR_TRACKER) and "split_count" in self.config
+    
+    def get_split_score(self):
+        return self.config.get("split_score", 5)
+    
+    def get_bullet_damage(self, base_damage):
+        if self.is_armored():
+            reduction = self.config.get("bullet_damage_reduction", 0.5)
+            return max(1, int(base_damage * reduction))
+        return base_damage
+    
+    def get_chain_explosion_bonus(self):
+        return self.config.get("chain_explosion_bonus", 5)
     
     def get_split_meteors(self):
         if not self.can_split():
@@ -271,6 +367,21 @@ class Meteor:
         return False
     
     def update(self):
+        if self.is_frozen:
+            self.freeze_duration -= 1
+            
+            self.freeze_pulse_phase += 0.1
+            
+            if self.freeze_transition_progress < 1.0:
+                self.freeze_transition_progress = min(1.0, self.freeze_transition_progress + 0.05)
+            
+            self._update_freeze_particles()
+            
+            if self.freeze_duration <= 0:
+                self.is_frozen = False
+                self.freeze_particles = []
+            return
+        
         self.y += self.speed
         self.rect.y = self.y
         
@@ -294,6 +405,24 @@ class Meteor:
             self.rotation += 360
         
         self.glow_pulse_phase += 0.1
+    
+    def _update_freeze_particles(self):
+        center_x = self.x + self.width // 2
+        center_y = self.y + self.height // 2
+        
+        for particle in self.freeze_particles:
+            particle["pulse_phase"] += particle.get("pulse_speed", 0.1)
+            
+            if particle["type"] == "inner":
+                particle["y"] += particle.get("float_speed", 0.05) * particle.get("float_direction", 1)
+                if random.random() < 0.01:
+                    particle["float_direction"] *= -1
+            
+            elif particle["type"] == "floating":
+                particle["float_angle"] += particle.get("orbit_speed", 0.02)
+                orbit_radius = particle.get("orbit_radius", 20)
+                particle["x"] = center_x + math.cos(particle["float_angle"]) * orbit_radius
+                particle["y"] = center_y + math.sin(particle["float_angle"]) * orbit_radius
     
     def _draw_metal_texture(self, surface, rect, center_x, center_y):
         shine_pos = (self.metal_shine_offset + self.rotation) % 360
@@ -460,6 +589,9 @@ class Meteor:
         center_x = self.x + self.width // 2
         center_y = self.y + self.height // 2
         
+        if self.is_frozen:
+            self._draw_freeze_effect(surface, center_x, center_y)
+        
         if self.is_explosive():
             self._draw_glow_effect(surface, center_x, center_y)
         
@@ -500,7 +632,10 @@ class Meteor:
                         2
                     )
             
-            rotated_surface = pygame.transform.rotate(temp_surface, self.rotation)
+            if self.is_frozen:
+                rotated_surface = pygame.transform.rotate(temp_surface, self.freeze_rotation)
+            else:
+                rotated_surface = pygame.transform.rotate(temp_surface, self.rotation)
             new_rect = rotated_surface.get_rect(center=(center_x, center_y))
             surface.blit(rotated_surface, new_rect)
         
@@ -508,6 +643,9 @@ class Meteor:
             self._draw_metal_texture(surface, None, center_x, center_y)
         
         self._draw_spark_particles(surface)
+        
+        if self.is_frozen:
+            self._draw_freeze_particles(surface)
         
         if self.is_tracker():
             self._draw_tracking_arrow(surface, center_x, center_y)
@@ -527,4 +665,168 @@ class Meteor:
                 indicator_color,
                 (center_x, self.y - 8),
                 5
+            )
+    
+    def _draw_freeze_effect(self, surface, center_x, center_y):
+        transition_alpha = int(255 * self.freeze_transition_progress)
+        
+        max_radius = max(self.width, self.height) // 2 + 15
+        
+        glow_surface = pygame.Surface((max_radius * 4, max_radius * 4), pygame.SRCALPHA)
+        glow_center = max_radius * 2
+        
+        pulse_value = (math.sin(self.freeze_pulse_phase * 2) + 1) / 2
+        
+        for i in range(5, 0, -1):
+            radius = max_radius - i * 2
+            base_alpha = 30 + i * 10
+            pulse_alpha = int(base_alpha + pulse_value * 20)
+            final_alpha = int(pulse_alpha * (transition_alpha / 255))
+            
+            pygame.draw.circle(
+                glow_surface,
+                (*FREEZE_CYAN, final_alpha),
+                (glow_center, glow_center),
+                radius
+            )
+        
+        surface.blit(glow_surface, (center_x - glow_center, center_y - glow_center))
+        
+        frost_layer = pygame.Surface((self.width + 10, self.height + 10), pygame.SRCALPHA)
+        frost_rect = pygame.Rect(5, 5, self.width, self.height)
+        
+        frost_alpha = int(80 * (transition_alpha / 255))
+        pygame.draw.ellipse(frost_layer, (*ICE_BLUE, frost_alpha), frost_rect)
+        
+        border_alpha = int(150 * (transition_alpha / 255))
+        pygame.draw.ellipse(frost_layer, (*FREEZE_CYAN, border_alpha), frost_rect, 3)
+        
+        for i in range(8):
+            angle = (i / 8) * 2 * math.pi + self.freeze_pulse_phase
+            dist = max(self.width, self.height) // 3
+            
+            spike_x = frost_rect.centerx + math.cos(angle) * dist
+            spike_y = frost_rect.centery + math.sin(angle) * dist
+            
+            spike_length = 5 + pulse_value * 3
+            
+            end_x = spike_x + math.cos(angle) * spike_length
+            end_y = spike_y + math.sin(angle) * spike_length
+            
+            spike_alpha = int((100 + pulse_value * 50) * (transition_alpha / 255))
+            pygame.draw.line(
+                frost_layer,
+                (*FREEZE_CYAN, spike_alpha),
+                (spike_x, spike_y),
+                (end_x, end_y),
+                2
+            )
+        
+        frost_rotated = pygame.transform.rotate(frost_layer, self.freeze_rotation)
+        frost_new_rect = frost_rotated.get_rect(center=(center_x, center_y))
+        surface.blit(frost_rotated, frost_new_rect)
+    
+    def _draw_freeze_particles(self, surface):
+        transition_alpha = int(255 * self.freeze_transition_progress)
+        
+        for particle in self.freeze_particles:
+            pulse_value = (math.sin(particle["pulse_phase"]) + 1) / 2
+            
+            opacity = int(particle["opacity"] * (transition_alpha / 255))
+            size = particle["size"] + pulse_value * 2
+            
+            ice_type = particle.get("ice_type", "flake")
+            
+            particle_surface = pygame.Surface((int(size * 4) + 2, int(size * 4) + 2), pygame.SRCALPHA)
+            particle_center = (int(size * 4) + 2) // 2
+            
+            if ice_type == "spike":
+                self._draw_ice_spike(particle_surface, particle_center, particle_center, size, (*FREEZE_CYAN, opacity))
+            elif ice_type == "flake":
+                self._draw_snowflake(particle_surface, particle_center, particle_center, size, (*ICE_BLUE, opacity))
+            elif ice_type == "crystal":
+                self._draw_ice_crystal(particle_surface, particle_center, particle_center, size, (*FREEZE_CYAN, opacity))
+            elif ice_type == "frost":
+                self._draw_frost_particle(particle_surface, particle_center, particle_center, size, (*ICE_BLUE, opacity))
+            
+            surface.blit(
+                particle_surface,
+                (int(particle["x"] - particle_center), int(particle["y"] - particle_center))
+            )
+    
+    def _draw_ice_spike(self, surface, x, y, size, color):
+        points = [
+            (x, y - size),
+            (x - size // 3, y),
+            (x + size // 3, y),
+        ]
+        pygame.draw.polygon(surface, color, points)
+        pygame.draw.line(
+            surface,
+            (*color[:3], int(color[3] * 0.7)),
+            (x, y - size + 2),
+            (x, y - 2),
+            1
+        )
+    
+    def _draw_snowflake(self, surface, x, y, size, color):
+        for angle in [0, 60, 120, 180, 240, 300]:
+            rad = math.radians(angle)
+            
+            end_x = x + math.cos(rad) * size
+            end_y = y + math.sin(rad) * size
+            pygame.draw.line(surface, color, (x, y), (int(end_x), int(end_y)), 1)
+            
+            branch_angle1 = rad + math.radians(45)
+            branch_angle2 = rad - math.radians(45)
+            
+            branch_len = size * 0.4
+            branch_start_x = x + math.cos(rad) * size * 0.5
+            branch_start_y = y + math.sin(rad) * size * 0.5
+            
+            branch_end1_x = branch_start_x + math.cos(branch_angle1) * branch_len
+            branch_end1_y = branch_start_y + math.sin(branch_angle1) * branch_len
+            
+            branch_end2_x = branch_start_x + math.cos(branch_angle2) * branch_len
+            branch_end2_y = branch_start_y + math.sin(branch_angle2) * branch_len
+            
+            pygame.draw.line(surface, (*color[:3], int(color[3] * 0.8)), 
+                           (int(branch_start_x), int(branch_start_y)), 
+                           (int(branch_end1_x), int(branch_end1_y)), 1)
+            pygame.draw.line(surface, (*color[:3], int(color[3] * 0.8)), 
+                           (int(branch_start_x), int(branch_start_y)), 
+                           (int(branch_end2_x), int(branch_end2_y)), 1)
+        
+        pygame.draw.circle(surface, color, (x, y), 2)
+    
+    def _draw_ice_crystal(self, surface, x, y, size, color):
+        hex_points = []
+        for angle in [30, 90, 150, 210, 270, 330]:
+            rad = math.radians(angle)
+            hex_points.append((
+                x + math.cos(rad) * size,
+                y + math.sin(rad) * size
+            ))
+        pygame.draw.polygon(surface, color, hex_points, 1)
+        
+        inner_points = []
+        for angle in [30, 90, 150, 210, 270, 330]:
+            rad = math.radians(angle)
+            inner_points.append((
+                x + math.cos(rad) * size * 0.5,
+                y + math.sin(rad) * size * 0.5
+            ))
+        pygame.draw.polygon(surface, (*color[:3], int(color[3] * 0.5)), inner_points)
+    
+    def _draw_frost_particle(self, surface, x, y, size, color):
+        int_size = int(size)
+        for _ in range(5):
+            offset_x = random.randint(-int_size, int_size)
+            offset_y = random.randint(-int_size, int_size)
+            dot_size = random.randint(1, 3)
+            pygame.draw.circle(
+                surface,
+                (*color[:3], int(color[3] * random.uniform(0.5, 1.0))),
+                (x + offset_x, y + offset_y),
+                dot_size
             )

@@ -16,6 +16,8 @@ class SoundType:
     BUTTON_CLICK = "button_click"
     DODGE = "dodge"
     MOVE = "move"
+    PENETRATING_SHOOT = "penetrating_shoot"
+    FREEZE = "freeze"
 
 
 class SoundGenerator:
@@ -248,6 +250,57 @@ class SoundGenerator:
         
         return data
     
+    def generate_penetrating_shoot(self, duration=0.25, volume=0.6):
+        num_samples = int(self.sample_rate * duration)
+        data = array.array('h', [0]) * num_samples
+        
+        for i in range(num_samples):
+            t = i / self.sample_rate
+            fade_factor = 1 - (t / duration) * 0.7
+            
+            freq1 = 600 + 300 * (t / duration)
+            freq2 = freq1 * 1.5
+            freq3 = freq1 * 2
+            
+            wave1 = math.sin(2 * math.pi * freq1 * t)
+            wave2 = math.sin(2 * math.pi * freq2 * t)
+            wave3 = math.sin(2 * math.pi * freq3 * t)
+            
+            resonance = 0.3 * math.sin(2 * math.pi * 100 * t)
+            
+            combined_wave = 0.4 * wave1 + 0.3 * wave2 + 0.2 * wave3 + resonance
+            value = int(volume * fade_factor * 32767 * combined_wave)
+            data[i] = value
+        
+        return data
+    
+    def generate_freeze(self, duration=0.3, volume=0.5):
+        num_samples = int(self.sample_rate * duration)
+        data = array.array('h', [0]) * num_samples
+        
+        import random
+        for i in range(num_samples):
+            t = i / self.sample_rate
+            fade_factor = 1 - (t / duration) * 0.8
+            
+            ice_crackle = 2 * random.random() - 1
+            frost_wave = math.sin(2 * math.pi * 800 * t) * 0.3
+            frost_wave += math.sin(2 * math.pi * 1200 * t) * 0.2
+            frost_wave += math.sin(2 * math.pi * 2000 * t) * 0.1
+            
+            if t < 0.1:
+                crackle_factor = t / 0.1
+            elif t > 0.2:
+                crackle_factor = (1.0 - t) / 0.1
+            else:
+                crackle_factor = 1.0
+            
+            combined_sound = 0.5 * ice_crackle * crackle_factor + 0.5 * frost_wave
+            value = int(volume * fade_factor * 32767 * combined_sound)
+            data[i] = value
+        
+        return data
+    
     def create_sound(self, data):
         stereo_data = array.array('h')
         for sample in data:
@@ -389,6 +442,10 @@ class AudioManager:
                 data = self.sound_generator.generate_dodge()
             elif name == SoundType.MOVE:
                 data = self.sound_generator.generate_move()
+            elif name == SoundType.PENETRATING_SHOOT:
+                data = self.sound_generator.generate_penetrating_shoot()
+            elif name == SoundType.FREEZE:
+                data = self.sound_generator.generate_freeze()
             else:
                 data = self.sound_generator.generate_sine_wave(440, 0.1, 0.3)
             
@@ -450,6 +507,8 @@ class AudioManager:
             SoundType.BUTTON_CLICK,
             SoundType.DODGE,
             SoundType.MOVE,
+            SoundType.PENETRATING_SHOOT,
+            SoundType.FREEZE,
         ]
         
         loaded_count = 0

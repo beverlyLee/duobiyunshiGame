@@ -10,7 +10,8 @@ from game.config import (
     POWERUP_CONFIG, SHIELD_BLUE, BULLET_YELLOW, SLOW_GREEN,
     METEOR_CONFIG, METEOR_SPLIT,
     METEOR_TRACKER, METEOR_EXPLOSIVE, METEOR_ARMORED,
-    SPECIAL_METEOR_CONFIG
+    SPECIAL_METEOR_CONFIG,
+    SYNERGY_CONFIG
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
@@ -243,9 +244,33 @@ class Game:
         if self.has_bullet and self.bullet_cooldown <= 0:
             ship_center_x = self.ship.x + self.ship.width // 2
             ship_top_y = self.ship.y
-            self.bullets.append(Bullet(ship_center_x, ship_top_y))
+            
+            is_penetrating = False
+            is_freezing = False
+            penetration_count = 0
+            size_multiplier = 1.0
+            
+            if self.has_shield and self.has_bullet:
+                is_penetrating = True
+                penetration_count = SYNERGY_CONFIG["penetrating"]["penetration_count"]
+                size_multiplier = SYNERGY_CONFIG["penetrating"]["size_multiplier"]
+            elif self.has_bullet and self.meteor_slow:
+                is_freezing = True
+            
+            self.bullets.append(Bullet(
+                ship_center_x, 
+                ship_top_y, 
+                is_penetrating=is_penetrating,
+                is_freezing=is_freezing,
+                penetration_count=penetration_count,
+                size_multiplier=size_multiplier
+            ))
             self.bullet_cooldown = self.bullet_cooldown_frames
-            self.audio_manager.play_sound(SoundType.SHOOT)
+            
+            if is_penetrating:
+                self.audio_manager.play_sound(SoundType.PENETRATING_SHOOT)
+            else:
+                self.audio_manager.play_sound(SoundType.SHOOT)
     
     def _update_level_and_counters(self):
         if self.difficulty_system:
@@ -319,7 +344,7 @@ class Game:
             self.powerup_timer = 0
             self.powerup_interval = FPS * random.randint(3, 6)
     
-    def create_explosion_chain(self, source_meteor):
+    def create_explosion_chain(self, source_meteor, chain_level=0):
         explosion_center = source_meteor.get_center()
         explosion_radius = source_meteor.get_explosion_radius()
         
@@ -348,18 +373,25 @@ class Game:
                     
                     if meteor.can_split():
                         split_meteors = meteor.get_split_meteors()
+                        split_score = meteor.get_split_score()
                         for split_meteor in split_meteors:
                             split_center = split_meteor.get_center()
                             self.particle_system.create_explosion(
                                 split_center[0], split_center[1], 5
                             )
                             self.meteors.append(split_meteor)
+                            self.add_score_with_combo(split_score, "split_destroy")
                     
                     if meteor.should_explode_on_destroy():
-                        self.create_explosion_chain(meteor)
+                        self.create_explosion_chain(meteor, chain_level + 1)
                     
                     score_value = meteor.config.get("score", 10)
                     self.add_score_with_combo(score_value, "explosion_destroy")
+                    
+                    if chain_level > 0 and source_meteor.is_explosive():
+                        chain_bonus = source_meteor.get_chain_explosion_bonus()
+                        self.add_score_with_combo(chain_bonus, "chain_explosion")
+                    
                     self.meteors.remove(meteor)
     
     def check_bullet_collisions(self):
@@ -367,6 +399,11 @@ class Game:
             for meteor in self.meteors[:]:
                 if bullet.rect.colliderect(meteor.rect):
                     meteor_center = meteor.get_center()
+                    
+                    if bullet.is_freezing:
+                        if random.random() < SYNERGY_CONFIG["freeze"]["freeze_chance"]:
+                            meteor.freeze(SYNERGY_CONFIG["freeze"]["freeze_duration"])
+                            self.audio_manager.play_sound(SoundType.FREEZE)
                     
                     self.particle_system.create_explosion(
                         meteor_center[0], meteor_center[1], 8
@@ -378,7 +415,9 @@ class Game:
                     if meteor.is_explosive():
                         meteor.activate_fuse()
                     
-                    if meteor.take_damage(2):
+                    bullet_damage = meteor.get_bullet_damage(2)
+                    
+                    if meteor.take_damage(bullet_damage):
                         if meteor.should_explode_on_destroy():
                             self.create_explosion_chain(meteor)
                         else:
@@ -391,12 +430,14 @@ class Game:
                             
                             if meteor.can_split():
                                 split_meteors = meteor.get_split_meteors()
+                                split_score = meteor.get_split_score()
                                 for split_meteor in split_meteors:
                                     split_center = split_meteor.get_center()
                                     self.particle_system.create_explosion(
                                         split_center[0], split_center[1], 5
                                     )
                                     self.meteors.append(split_meteor)
+                                    self.add_score_with_combo(split_score, "split_destroy")
                             
                             score_value = meteor.config.get("score", 10)
                             self.add_score_with_combo(score_value, "destroy")
@@ -407,8 +448,14 @@ class Game:
                     else:
                         self.audio_manager.play_sound(SoundType.HIT)
                     
-                    self.bullets.remove(bullet)
-                    break
+                    if bullet.is_penetrating and bullet.can_penetrate():
+                        bullet.use_penetration()
+                        if not bullet.active:
+                            self.bullets.remove(bullet)
+                            break
+                    else:
+                        self.bullets.remove(bullet)
+                        break
     
     def check_collisions(self):
         for meteor in self.meteors[:]:
@@ -436,12 +483,14 @@ class Game:
                             
                             if meteor.can_split():
                                 split_meteors = meteor.get_split_meteors()
+                                split_score = meteor.get_split_score()
                                 for split_meteor in split_meteors:
                                     split_center = split_meteor.get_center()
                                     self.particle_system.create_explosion(
                                         split_center[0], split_center[1], 5
                                     )
                                     self.meteors.append(split_meteor)
+                                    self.add_score_with_combo(split_score, "split_destroy")
                             
                             score_value = meteor.config.get("score", 10)
                             self.add_score_with_combo(score_value, "shield_destroy")
@@ -652,6 +701,18 @@ class Game:
                 self.bullets.remove(bullet)
         
         for meteor in self.meteors[:]:
+            if meteor.is_frozen:
+                meteor.update()
+                if meteor.y > SCREEN_HEIGHT:
+                    meteor_center = meteor.get_center()
+                    self.particle_system.create_explosion(meteor_center[0], SCREEN_HEIGHT - 20, 12)
+                    self.meteors.remove(meteor)
+                    
+                    score_value = meteor.config.get("score", 10)
+                    self.add_score_with_combo(score_value, "dodge")
+                    self.audio_manager.play_sound(SoundType.DODGE)
+                continue
+            
             speed_multiplier = 1.0
             if self.difficulty_system:
                 speed_multiplier = self.difficulty_system.get_meteor_speed_multiplier()
@@ -795,6 +856,21 @@ class Game:
         status_spacing = 45
         
         active_powerups = []
+        synergy_active = False
+        synergy_name = ""
+        synergy_color = (255, 255, 255)
+        synergy_icon = ""
+        
+        if self.has_shield and self.has_bullet:
+            synergy_active = True
+            synergy_name = "穿透护盾"
+            synergy_color = SYNERGY_CONFIG["penetrating"]["color"]
+            synergy_icon = "🌟"
+        elif self.has_bullet and self.meteor_slow:
+            synergy_active = True
+            synergy_name = "冰冻子弹"
+            synergy_color = SYNERGY_CONFIG["freeze"]["color"]
+            synergy_icon = "❄️"
         
         if self.has_shield:
             active_powerups.append({
@@ -854,6 +930,24 @@ class Game:
             pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, 4))
             if current_progress_width > 0:
                 pygame.draw.rect(surface, powerup["color"], (progress_x, progress_y, current_progress_width, 4))
+        
+        if synergy_active:
+            synergy_y = status_y + len(active_powerups) * status_spacing + 10
+            synergy_width = status_width
+            synergy_height = status_height
+            
+            bg_surface = pygame.Surface((synergy_width, synergy_height), pygame.SRCALPHA)
+            bg_surface.fill((*synergy_color, 120))
+            pygame.draw.rect(bg_surface, (*synergy_color, 220), (0, 0, synergy_width, synergy_height), 3)
+            surface.blit(bg_surface, (status_x, synergy_y))
+            
+            icon_text = get_small_font().render(synergy_icon, True, WHITE)
+            icon_rect = icon_text.get_rect(midleft=(status_x + 15, synergy_y + synergy_height // 2))
+            surface.blit(icon_text, icon_rect)
+            
+            name_text = get_small_font().render(synergy_name, True, WHITE)
+            name_rect = name_text.get_rect(midleft=(status_x + 45, synergy_y + synergy_height // 2))
+            surface.blit(name_text, name_rect)
     
     def draw_ship_with_shield(self, surface):
         self.ship.draw(surface)
