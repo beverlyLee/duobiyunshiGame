@@ -1,7 +1,22 @@
 import pygame
+import pygame.surfarray as surfarray
 import math
 from game.config import FPS
 from game.core.utils import get_font, get_medium_font, get_large_font
+
+
+def apply_alpha_to_surface(surface, alpha_value):
+    if alpha_value >= 255:
+        return surface
+    if alpha_value <= 0:
+        return None
+    
+    alpha_ratio = alpha_value / 255.0
+    alpha_array = surfarray.pixels_alpha(surface)
+    alpha_array[:] = (alpha_array * alpha_ratio).astype(alpha_array.dtype)
+    del alpha_array
+    return surface
+
 
 class ComboSystem:
     def __init__(self):
@@ -139,7 +154,6 @@ class ComboSystem:
         
         combo_text = f"{self.combo} 连击"
         text_surface = font.render(combo_text, True, color)
-        text_surface = text_surface.convert_alpha()
         
         if scale != 1.0:
             text_width = text_surface.get_width()
@@ -151,11 +165,15 @@ class ComboSystem:
             scaled_width = text_surface.get_width()
             scaled_height = text_surface.get_height()
         
-        draw_x = x - scaled_width // 2
-        draw_y = y - scaled_height // 2
+        text_surface = text_surface.convert_alpha()
         
         if alpha < 255:
-            text_surface.set_alpha(alpha)
+            text_surface = apply_alpha_to_surface(text_surface, alpha)
+            if text_surface is None:
+                return
+        
+        draw_x = x - scaled_width // 2
+        draw_y = y - scaled_height // 2
         
         surface.blit(text_surface, (draw_x, draw_y))
         
@@ -250,7 +268,6 @@ class DifficultySystem:
         level_text = f"等级 {self.level}!"
         title_font = get_large_font()
         title_surface = title_font.render(level_text, True, (255, 215, 0))
-        title_surface = title_surface.convert_alpha()
         
         if pulse_scale != 1.0:
             scaled_width = int(title_surface.get_width() * pulse_scale)
@@ -260,23 +277,30 @@ class DifficultySystem:
             scaled_width = title_surface.get_width()
             scaled_height = title_surface.get_height()
         
-        title_x = screen_width // 2 - scaled_width // 2
-        title_y = screen_height // 2 - scaled_height - 30
+        title_surface = title_surface.convert_alpha()
         
         if alpha < 255:
-            title_surface.set_alpha(alpha)
+            title_surface = apply_alpha_to_surface(title_surface, alpha)
+            if title_surface is None:
+                return
+        
+        title_x = screen_width // 2 - scaled_width // 2
+        title_y = screen_height // 2 - scaled_height - 30
         
         surface.blit(title_surface, (title_x, title_y))
         
         subtitle_text = "难度提升！"
         subtitle_font = get_medium_font()
         subtitle_surface = subtitle_font.render(subtitle_text, True, (255, 100, 100))
+        
         subtitle_surface = subtitle_surface.convert_alpha()
+        
+        if alpha < 255:
+            subtitle_surface = apply_alpha_to_surface(subtitle_surface, alpha)
+            if subtitle_surface is None:
+                return
         
         subtitle_x = screen_width // 2 - subtitle_surface.get_width() // 2
         subtitle_y = screen_height // 2 + 20
-        
-        if alpha < 255:
-            subtitle_surface.set_alpha(alpha)
         
         surface.blit(subtitle_surface, (subtitle_x, subtitle_y))

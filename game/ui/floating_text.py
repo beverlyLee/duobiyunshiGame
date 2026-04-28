@@ -1,4 +1,5 @@
 import pygame
+import pygame.surfarray as surfarray
 from game.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
     YELLOW, GREEN
@@ -34,11 +35,13 @@ class FloatingText:
             return
 
         text_surf = self.font.render(self.text, True, self.color)
-
         text_surf = text_surf.convert_alpha()
 
         if self.alpha < 255:
-            text_surf.set_alpha(self.alpha)
+            alpha_ratio = self.alpha / 255.0
+            alpha_array = surfarray.pixels_alpha(text_surf)
+            alpha_array[:] = (alpha_array * alpha_ratio).astype(alpha_array.dtype)
+            del alpha_array
 
         text_rect = text_surf.get_rect(center=(int(self.x), int(self.y)))
         surface.blit(text_surf, text_rect)
