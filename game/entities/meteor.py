@@ -96,6 +96,13 @@ class Meteor:
         self.freeze_particles = []
         self.freeze_pulse_phase = 0.0
         self.freeze_transition_progress = 0.0
+        
+        self.knockback_vx = 0.0
+        self.knockback_vy = 0.0
+        self.knockback_duration = 0
+        self.knockback_dampening = 0.92
+        self.knockback_intensity = 0.0
+        self.knockback_particles = []
     
     def set_ship(self, ship):
         self.ship = ship
@@ -123,6 +130,48 @@ class Meteor:
         self.hit_effect_timer = self.hit_flash_duration
         self.was_hit = True
         return self.hp <= 0
+    
+    def apply_knockback(self, dx, dy, force, distance_ratio=1.0):
+        distance = math.sqrt(dx * dx + dy * dy)
+        if distance > 0:
+            self.knockback_vx = (dx / distance) * force
+            self.knockback_vy = (dy / distance) * force
+            self.knockback_duration = 30
+            self.knockback_intensity = distance_ratio
+            
+            self._create_knockback_particles()
+    
+    def _create_knockback_particles(self):
+        center_x, center_y = self.get_center()
+        num_particles = int(8 + self.knockback_intensity * 12)
+        
+        for _ in range(num_particles):
+            angle = random.uniform(0, 2 * math.pi)
+            speed = random.uniform(1.5, 3.5) * (0.5 + 0.5 * self.knockback_intensity)
+            size = random.uniform(2, 4) * (0.5 + 0.5 * self.knockback_intensity)
+            lifetime = random.randint(15, 25)
+            
+            self.knockback_particles.append({
+                "x": center_x,
+                "y": center_y,
+                "vx": math.cos(angle) * speed,
+                "vy": math.sin(angle) * speed,
+                "size": size,
+                "lifetime": lifetime,
+                "max_lifetime": lifetime,
+                "color_shift": random.random()
+            })
+    
+    def _update_knockback_particles(self):
+        for particle in self.knockback_particles[:]:
+            particle["x"] += particle["vx"]
+            particle["y"] += particle["vy"]
+            particle["vx"] *= 0.96
+            particle["vy"] *= 0.96
+            particle["lifetime"] -= 1
+            
+            if particle["lifetime"] <= 0:
+                self.knockback_particles.remove(particle)
     
     def _create_sparks(self):
         center_x, center_y = self.get_center()
@@ -382,7 +431,23 @@ class Meteor:
                 self.freeze_particles = []
             return
         
-        self.y += self.speed
+        if self.knockback_duration > 0:
+            self.knockback_duration -= 1
+            self.x += self.knockback_vx
+            self.y += self.knockback_vy
+            self.knockback_vx *= self.knockback_dampening
+            self.knockback_vy *= self.knockback_dampening
+            
+            if self.x < 0:
+                self.x = 0
+                self.knockback_vx = -self.knockback_vx * 0.5
+            elif self.x > SCREEN_WIDTH - self.width:
+                self.x = SCREEN_WIDTH - self.width
+                self.knockback_vx = -self.knockback_vx * 0.5
+        else:
+            self.y += self.speed
+        
+        self.rect.x = self.x
         self.rect.y = self.y
         
         self.update_tracking()
@@ -390,6 +455,8 @@ class Meteor:
         self.update_explosive()
         
         self._update_sparks()
+        
+        self._update_knockback_particles()
         
         self.rotation += self.rotation_speed
         
@@ -585,6 +652,60 @@ class Meteor:
             )
             surface.blit(temp_surface, (int(spark["x"] - size - 1), int(spark["y"] - size - 1)))
     
+    def _draw_knockback_effect(self, surface, center_x, center_y):
+        if self.knockback_duration <= 0:
+            return
+        
+        intensity_ratio = self.knockback_duration / 30.0
+        
+        glow_intensity = intensity_ratio * self.knockback_intensity
+        
+        if glow_intensity <= 0:
+            return
+        
+        max_radius = max(self.width, self.height) // 2 + 15
+        glow_surface = pygame.Surface((max_radius * 4, max_radius * 4), pygame.SRCALPHA)
+        glow_center = max_radius * 2
+        
+        for i in range(4, 0, -1):
+            current_radius = max_radius - i * 4
+            alpha = int(glow_intensity * 120 / (i + 1))
+            
+            if i % 2 == 0:
+                glow_color = (255, 215, 0, alpha)
+            else:
+                glow_color = (255, 180, 100, alpha)
+            
+            pygame.draw.circle(
+                glow_surface,
+                glow_color,
+                (glow_center, glow_center),
+                current_radius
+            )
+        
+        surface.blit(glow_surface, (center_x - glow_center, center_y - glow_center))
+    
+    def _draw_knockback_particles(self, surface):
+        for particle in self.knockback_particles:
+            alpha = int(255 * (particle["lifetime"] / particle["max_lifetime"]))
+            size = particle["size"] * (particle["lifetime"] / particle["max_lifetime"])
+            
+            if particle["color_shift"] > 0.7:
+                particle_color = (255, 215, 0, alpha)
+            elif particle["color_shift"] > 0.3:
+                particle_color = (255, 180, 100, alpha)
+            else:
+                particle_color = (255, 140, 0, alpha)
+            
+            temp_surface = pygame.Surface((int(size * 2) + 2, int(size * 2) + 2), pygame.SRCALPHA)
+            pygame.draw.circle(
+                temp_surface,
+                particle_color,
+                (int(size) + 1, int(size) + 1),
+                int(size)
+            )
+            surface.blit(temp_surface, (int(particle["x"] - size - 1), int(particle["y"] - size - 1)))
+    
     def draw(self, surface):
         center_x = self.x + self.width // 2
         center_y = self.y + self.height // 2
@@ -594,6 +715,9 @@ class Meteor:
         
         if self.is_explosive():
             self._draw_glow_effect(surface, center_x, center_y)
+        
+        if self.knockback_duration > 0:
+            self._draw_knockback_effect(surface, center_x, center_y)
         
         if self.is_tracker():
             self._draw_circular_meteor(surface, center_x, center_y)
@@ -643,6 +767,8 @@ class Meteor:
             self._draw_metal_texture(surface, None, center_x, center_y)
         
         self._draw_spark_particles(surface)
+        
+        self._draw_knockback_particles(surface)
         
         if self.is_frozen:
             self._draw_freeze_particles(surface)

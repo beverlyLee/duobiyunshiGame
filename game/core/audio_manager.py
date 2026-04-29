@@ -18,6 +18,8 @@ class SoundType:
     MOVE = "move"
     PENETRATING_SHOOT = "penetrating_shoot"
     FREEZE = "freeze"
+    ULTIMATE_ACTIVATE = "ultimate_activate"
+    ENERGY_SHIELD = "energy_shield"
 
 
 class SoundGenerator:
@@ -301,6 +303,73 @@ class SoundGenerator:
         
         return data
     
+    def generate_ultimate_activate(self, duration=0.8, volume=0.7):
+        num_samples = int(self.sample_rate * duration)
+        data = array.array('h', [0]) * num_samples
+        
+        for i in range(num_samples):
+            t = i / self.sample_rate
+            
+            if t < 0.2:
+                envelope = t / 0.2
+            elif t < 0.6:
+                envelope = 1.0
+            else:
+                envelope = 1.0 - (t - 0.6) / 0.2
+            
+            sweep_factor = 1.0 + 1.5 * (t / duration)
+            
+            freq1 = 440 * sweep_factor
+            freq2 = 554 * sweep_factor
+            freq3 = 659 * sweep_factor
+            freq4 = 880 * sweep_factor
+            
+            wave1 = math.sin(2 * math.pi * freq1 * t)
+            wave2 = math.sin(2 * math.pi * freq2 * t)
+            wave3 = math.sin(2 * math.pi * freq3 * t)
+            wave4 = math.sin(2 * math.pi * freq4 * t)
+            
+            vibrato = 0.05 * math.sin(2 * math.pi * 5 * t)
+            chorus = 0.3 * math.sin(2 * math.pi * (freq1 * 1.01) * t)
+            
+            combined_wave = 0.25 * wave1 + 0.25 * wave2 + 0.2 * wave3 + 0.2 * wave4 + 0.1 * chorus
+            
+            value = int(volume * envelope * 32767 * combined_wave)
+            data[i] = value
+        
+        return data
+    
+    def generate_energy_shield(self, duration=0.4, volume=0.6):
+        num_samples = int(self.sample_rate * duration)
+        data = array.array('h', [0]) * num_samples
+        
+        import random
+        for i in range(num_samples):
+            t = i / self.sample_rate
+            
+            if t < 0.15:
+                envelope = t / 0.15
+            elif t < 0.25:
+                envelope = 1.0
+            else:
+                envelope = 1.0 - (t - 0.25) / 0.15
+            
+            base_freq = 300 + 400 * (t / duration)
+            
+            wave1 = math.sin(2 * math.pi * base_freq * t)
+            wave2 = math.sin(2 * math.pi * (base_freq * 1.5) * t)
+            wave3 = math.sin(2 * math.pi * (base_freq * 2) * t)
+            
+            energy_noise = 2 * random.random() - 1
+            noise_envelope = math.sin(math.pi * t / duration)
+            
+            combined_wave = 0.3 * wave1 + 0.25 * wave2 + 0.2 * wave3 + 0.25 * energy_noise * noise_envelope
+            
+            value = int(volume * envelope * 32767 * combined_wave)
+            data[i] = value
+        
+        return data
+    
     def create_sound(self, data):
         stereo_data = array.array('h')
         for sample in data:
@@ -446,6 +515,10 @@ class AudioManager:
                 data = self.sound_generator.generate_penetrating_shoot()
             elif name == SoundType.FREEZE:
                 data = self.sound_generator.generate_freeze()
+            elif name == SoundType.ULTIMATE_ACTIVATE:
+                data = self.sound_generator.generate_ultimate_activate()
+            elif name == SoundType.ENERGY_SHIELD:
+                data = self.sound_generator.generate_energy_shield()
             else:
                 data = self.sound_generator.generate_sine_wave(440, 0.1, 0.3)
             
@@ -509,6 +582,8 @@ class AudioManager:
             SoundType.MOVE,
             SoundType.PENETRATING_SHOOT,
             SoundType.FREEZE,
+            SoundType.ULTIMATE_ACTIVATE,
+            SoundType.ENERGY_SHIELD,
         ]
         
         loaded_count = 0

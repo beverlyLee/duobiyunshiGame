@@ -11,7 +11,9 @@ from game.config import (
     METEOR_CONFIG, METEOR_SPLIT,
     METEOR_TRACKER, METEOR_EXPLOSIVE, METEOR_ARMORED,
     SPECIAL_METEOR_CONFIG,
-    SYNERGY_CONFIG
+    SYNERGY_CONFIG,
+    ULTIMATE_GOLD, ULTIMATE_LIGHT_GOLD,
+    ENERGY_SHIELD_PURPLE, ENERGY_SHIELD_LIGHT_PURPLE
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
@@ -88,6 +90,17 @@ class Game:
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
+        
+        self.has_energy_shield = False
+        self.has_ultimate_mode = False
+        self.ultimate_duration = 0
+        
+        self.ultimate_transition_in = False
+        self.ultimate_transition_out = False
+        self.ultimate_transition_timer = 0
+        self.ultimate_transition_max = 45
+        
+        self.visual_effect_phase = 0
         
         self.move_sound_cooldown = 0
         self.move_sound_interval = 8
@@ -200,6 +213,17 @@ class Game:
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
+        
+        self.has_energy_shield = False
+        self.has_ultimate_mode = False
+        self.ultimate_duration = 0
+        
+        self.ultimate_transition_in = False
+        self.ultimate_transition_out = False
+        self.ultimate_transition_timer = 0
+        self.ultimate_transition_max = 45
+        
+        self.visual_effect_phase = 0
         
         self.move_sound_cooldown = 0
         
@@ -415,7 +439,10 @@ class Game:
                     if meteor.is_explosive():
                         meteor.activate_fuse()
                     
-                    bullet_damage = meteor.get_bullet_damage(2)
+                    base_damage = 2
+                    if self.has_ultimate_mode:
+                        base_damage *= SYNERGY_CONFIG["ultimate"]["bullet_damage_multiplier"]
+                    bullet_damage = meteor.get_bullet_damage(base_damage)
                     
                     if meteor.take_damage(bullet_damage):
                         if meteor.should_explode_on_destroy():
@@ -472,6 +499,28 @@ class Game:
                     
                     if meteor.is_explosive():
                         meteor.activate_fuse()
+                    
+                    if self.has_energy_shield or self.has_ultimate_mode:
+                        shockwave_radius = SYNERGY_CONFIG["energy_shield"]["shockwave_radius"]
+                        knockback_force = SYNERGY_CONFIG["energy_shield"]["knockback_force"]
+                        
+                        self.particle_system.create_knockback_shockwave(
+                            ship_center[0], ship_center[1], shockwave_radius
+                        )
+                        
+                        for other_meteor in self.meteors[:]:
+                            if other_meteor is meteor:
+                                continue
+                            
+                            other_center = other_meteor.get_center()
+                            dx = ship_center[0] - other_center[0]
+                            dy = ship_center[1] - other_center[1]
+                            distance = math.sqrt(dx * dx + dy * dy)
+                            
+                            if distance <= shockwave_radius:
+                                distance_ratio = 1.0 - (distance / shockwave_radius)
+                                adjusted_force = knockback_force * (0.5 + 0.5 * distance_ratio)
+                                other_meteor.apply_knockback(dx, dy, adjusted_force, distance_ratio)
                     
                     if meteor.take_damage():
                         if meteor.should_explode_on_destroy():
@@ -583,10 +632,41 @@ class Game:
                     self.meteor_slow = True
                     self.meteor_slow_duration = powerup.config["duration"]
                 
+                if self.has_shield and self.meteor_slow and not (self.has_shield and self.has_bullet):
+                    self.has_energy_shield = True
+                    self.shield_duration += SYNERGY_CONFIG["energy_shield"]["duration_extension"]
+                    self.shield_color = SYNERGY_CONFIG["energy_shield"]["color"]
+                    self.audio_manager.play_sound(SoundType.ENERGY_SHIELD)
+                
+                if self.has_shield and self.has_bullet and self.meteor_slow:
+                    if not self.has_ultimate_mode:
+                        self.has_ultimate_mode = True
+                        self.ultimate_duration = SYNERGY_CONFIG["ultimate"]["duration"]
+                        self.shield_color = SYNERGY_CONFIG["ultimate"]["color"]
+                        self.ultimate_transition_in = True
+                        self.ultimate_transition_timer = 0
+                        self.audio_manager.play_sound(SoundType.ULTIMATE_ACTIVATE)
+                
+                display_text = powerup.config["name"]
+                display_color = powerup.config["color"]
+                
+                if self.has_ultimate_mode:
+                    display_text = SYNERGY_CONFIG["ultimate"]["name"]
+                    display_color = SYNERGY_CONFIG["ultimate"]["color"]
+                elif self.has_energy_shield:
+                    display_text = SYNERGY_CONFIG["energy_shield"]["name"]
+                    display_color = SYNERGY_CONFIG["energy_shield"]["color"]
+                elif self.has_shield and self.has_bullet:
+                    display_text = SYNERGY_CONFIG["penetrating"]["name"]
+                    display_color = SYNERGY_CONFIG["penetrating"]["color"]
+                elif self.has_bullet and self.meteor_slow:
+                    display_text = SYNERGY_CONFIG["freeze"]["name"]
+                    display_color = SYNERGY_CONFIG["freeze"]["color"]
+                
                 self.text_manager.add_text(
                     SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
-                    powerup.config["name"],
-                    powerup.config["color"], duration=120, float_speed=0, font_size=48
+                    display_text,
+                    display_color, duration=120, float_speed=0, font_size=48
                 )
                 
                 self.audio_manager.play_sound(SoundType.POWERUP)
@@ -654,16 +734,47 @@ class Game:
             return
         
         if self.has_shield:
-            self.shield_duration -= 1
+            if not self.has_ultimate_mode:
+                self.shield_duration -= 1
             self.shield_flash_timer += 1
             if self.shield_flash_timer >= self.shield_flash_interval:
                 self.show_shield_outline = not self.show_shield_outline
                 self.shield_flash_timer = 0
-            if self.shield_duration <= 0:
+            if self.shield_duration <= 0 and not self.has_ultimate_mode:
                 self.has_shield = False
                 self.show_shield_outline = True
+                self.has_energy_shield = False
+                self.shield_color = SHIELD_BLUE
         
-        if self.has_bullet:
+        if self.has_ultimate_mode:
+            self.ultimate_duration -= 1
+            self.visual_effect_phase += 1
+            
+            if self.ultimate_transition_in:
+                self.ultimate_transition_timer += 1
+                if self.ultimate_transition_timer >= self.ultimate_transition_max:
+                    self.ultimate_transition_in = False
+                    self.ultimate_transition_timer = 0
+            
+            if self.ultimate_duration <= 0 and not self.ultimate_transition_out:
+                self.ultimate_transition_out = True
+                self.ultimate_transition_timer = 0
+            
+            if self.ultimate_transition_out:
+                self.ultimate_transition_timer += 1
+                if self.ultimate_transition_timer >= self.ultimate_transition_max:
+                    self.has_ultimate_mode = False
+                    self.has_shield = False
+                    self.has_bullet = False
+                    self.meteor_slow = False
+                    self.has_energy_shield = False
+                    self.shield_color = SHIELD_BLUE
+                    self.ultimate_transition_out = False
+                    self.ultimate_transition_timer = 0
+        else:
+            self.visual_effect_phase += 1
+        
+        if self.has_bullet and not self.has_ultimate_mode:
             self.bullet_duration -= 1
             if self.bullet_cooldown > 0:
                 self.bullet_cooldown -= 1
@@ -671,10 +782,27 @@ class Game:
                 self.has_bullet = False
                 self.bullet_cooldown = 0
         
-        if self.meteor_slow:
+        if self.meteor_slow and not self.has_ultimate_mode:
             self.meteor_slow_duration -= 1
             if self.meteor_slow_duration <= 0:
                 self.meteor_slow = False
+                self.has_energy_shield = False
+                self.shield_color = SHIELD_BLUE
+        
+        if self.has_energy_shield and self.visual_effect_phase % 8 == 0:
+            ship_center = (self.ship.x + self.ship.width // 2, 
+                           self.ship.y + self.ship.height // 2)
+            shield_radius = max(self.ship.width, self.ship.height) // 2 + 15
+            self.particle_system.create_energy_wave_particles(
+                ship_center[0], ship_center[1], shield_radius, self.visual_effect_phase
+            )
+        
+        if self.has_ultimate_mode and self.visual_effect_phase % 6 == 0:
+            ship_center = (self.ship.x + self.ship.width // 2, 
+                           self.ship.y + self.ship.height // 2)
+            self.particle_system.create_ship_glow_particles(
+                ship_center[0], ship_center[1], self.visual_effect_phase
+            )
         
         self.ship.update(keys)
         
@@ -717,7 +845,10 @@ class Game:
             if self.difficulty_system:
                 speed_multiplier = self.difficulty_system.get_meteor_speed_multiplier()
             
-            if self.meteor_slow and meteor.speed > 2:
+            if self.has_ultimate_mode:
+                meteor.y += meteor.speed * SYNERGY_CONFIG["ultimate"]["meteor_speed_multiplier"] * speed_multiplier
+                meteor.rect.y = meteor.y
+            elif self.meteor_slow and meteor.speed > 2:
                 meteor.y += meteor.speed * 0.5 * speed_multiplier
                 meteor.rect.y = meteor.y
             else:
@@ -861,7 +992,17 @@ class Game:
         synergy_color = (255, 255, 255)
         synergy_icon = ""
         
-        if self.has_shield and self.has_bullet:
+        if self.has_ultimate_mode:
+            synergy_active = True
+            synergy_name = "终极模式"
+            synergy_color = SYNERGY_CONFIG["ultimate"]["color"]
+            synergy_icon = "👑"
+        elif self.has_energy_shield:
+            synergy_active = True
+            synergy_name = "能量护盾"
+            synergy_color = SYNERGY_CONFIG["energy_shield"]["color"]
+            synergy_icon = "🔮"
+        elif self.has_shield and self.has_bullet:
             synergy_active = True
             synergy_name = "穿透护盾"
             synergy_color = SYNERGY_CONFIG["penetrating"]["color"]
@@ -872,32 +1013,33 @@ class Game:
             synergy_color = SYNERGY_CONFIG["freeze"]["color"]
             synergy_icon = "❄️"
         
-        if self.has_shield:
-            active_powerups.append({
-                "type": "shield",
-                "duration": self.shield_duration,
-                "color": SHIELD_BLUE,
-                "name": "护盾",
-                "icon": "🛡️"
-            })
-        
-        if self.has_bullet:
-            active_powerups.append({
-                "type": "bullet",
-                "duration": self.bullet_duration,
-                "color": BULLET_YELLOW,
-                "name": "子弹",
-                "icon": "⚡"
-            })
-        
-        if self.meteor_slow:
-            active_powerups.append({
-                "type": "slow",
-                "duration": self.meteor_slow_duration,
-                "color": SLOW_GREEN,
-                "name": "减速",
-                "icon": "⏱️"
-            })
+        if not self.has_ultimate_mode:
+            if self.has_shield:
+                active_powerups.append({
+                    "type": "shield",
+                    "duration": self.shield_duration,
+                    "color": SHIELD_BLUE,
+                    "name": "护盾",
+                    "icon": "🛡️"
+                })
+            
+            if self.has_bullet:
+                active_powerups.append({
+                    "type": "bullet",
+                    "duration": self.bullet_duration,
+                    "color": BULLET_YELLOW,
+                    "name": "子弹",
+                    "icon": "⚡"
+                })
+            
+            if self.meteor_slow:
+                active_powerups.append({
+                    "type": "slow",
+                    "duration": self.meteor_slow_duration,
+                    "color": SLOW_GREEN,
+                    "name": "减速",
+                    "icon": "⏱️"
+                })
         
         for i, powerup in enumerate(active_powerups):
             current_y = status_y + i * status_spacing
@@ -948,6 +1090,24 @@ class Game:
             name_text = get_small_font().render(synergy_name, True, WHITE)
             name_rect = name_text.get_rect(midleft=(status_x + 45, synergy_y + synergy_height // 2))
             surface.blit(name_text, name_rect)
+            
+            if self.has_ultimate_mode:
+                seconds_remaining = max(0, (self.ultimate_duration + FPS - 1) // FPS)
+                time_text = get_small_font().render(f"{seconds_remaining}s", True, WHITE)
+                time_rect = time_text.get_rect(midright=(status_x + synergy_width - 10, synergy_y + synergy_height // 2))
+                surface.blit(time_text, time_rect)
+                
+                progress_width = synergy_width - 60
+                progress_x = status_x + 40
+                progress_y = synergy_y + synergy_height - 8
+                
+                max_duration = SYNERGY_CONFIG["ultimate"]["duration"]
+                progress = self.ultimate_duration / max_duration
+                current_progress_width = int(progress_width * progress)
+                
+                pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, 4))
+                if current_progress_width > 0:
+                    pygame.draw.rect(surface, synergy_color, (progress_x, progress_y, current_progress_width, 4))
     
     def draw_ship_with_shield(self, surface):
         self.ship.draw(surface)
@@ -956,30 +1116,187 @@ class Game:
             ship_center_x = self.ship.x + self.ship.width // 2
             ship_center_y = self.ship.y + self.ship.height // 2
             
-            shield_radius = max(self.ship.width, self.ship.height) // 2 + 15
+            base_shield_radius = max(self.ship.width, self.ship.height) // 2 + 15
+            
+            pulse_time = self.visual_effect_phase * 0.05
+            pulse_intensity = 0.8 + 0.2 * math.sin(pulse_time * 3)
+            pulse_offset = 3 * math.sin(pulse_time * 2)
+            
+            shield_radius = int(base_shield_radius * pulse_intensity + pulse_offset)
             
             shield_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
             
-            pygame.draw.polygon(
-                shield_surface, 
-                (*self.shield_color, 200),
-                [
-                    (ship_center_x, self.ship.y - 8),
-                    (self.ship.x - 8, self.ship.y + self.ship.height + 8),
-                    (self.ship.x + self.ship.width + 8, self.ship.y + self.ship.height + 8)
-                ],
-                3
-            )
-            
-            pygame.draw.circle(
-                shield_surface,
-                (*self.shield_color, 100),
-                (ship_center_x, ship_center_y),
-                shield_radius,
-                2
-            )
+            if self.has_ultimate_mode:
+                self._draw_ultimate_shield(shield_surface, ship_center_x, ship_center_y, shield_radius, pulse_time)
+            elif self.has_energy_shield:
+                self._draw_energy_shield(shield_surface, ship_center_x, ship_center_y, shield_radius, pulse_time)
+            else:
+                self._draw_normal_shield(shield_surface, ship_center_x, ship_center_y, shield_radius, pulse_time)
             
             surface.blit(shield_surface, (0, 0))
+    
+    def _draw_normal_shield(self, surface, cx, cy, radius, pulse_time):
+        outer_alpha = int(120 + 40 * math.sin(pulse_time * 2.5))
+        inner_alpha = int(180 + 40 * math.sin(pulse_time * 2.5))
+        
+        pygame.draw.circle(
+            surface,
+            (*self.shield_color, outer_alpha),
+            (cx, cy),
+            radius + 5,
+            2
+        )
+        
+        pygame.draw.circle(
+            surface,
+            (*self.shield_color, inner_alpha),
+            (cx, cy),
+            radius,
+            3
+        )
+        
+        pygame.draw.polygon(
+            surface, 
+            (*self.shield_color, 100),
+            [
+                (cx, self.ship.y - 8),
+                (self.ship.x - 8, self.ship.y + self.ship.height + 8),
+                (self.ship.x + self.ship.width + 8, self.ship.y + self.ship.height + 8)
+            ],
+            2
+        )
+    
+    def _draw_energy_shield(self, surface, cx, cy, radius, pulse_time):
+        outer_radius = radius + 8
+        inner_radius = radius - 2
+        
+        for layer in range(3):
+            layer_radius = outer_radius - layer * 5
+            layer_alpha = int(60 + 40 * math.sin(pulse_time * 2.5 + layer * 1.5))
+            layer_thickness = 3 if layer == 1 else 2
+            
+            if layer == 0:
+                layer_color = ENERGY_SHIELD_LIGHT_PURPLE
+            else:
+                layer_color = ENERGY_SHIELD_PURPLE
+            
+            pygame.draw.circle(
+                surface,
+                (*layer_color, layer_alpha),
+                (cx, cy),
+                layer_radius,
+                layer_thickness
+            )
+        
+        num_energy_points = 8
+        for i in range(num_energy_points):
+            angle = (i / num_energy_points) * math.pi * 2 + pulse_time * 1.5
+            point_radius = inner_radius + 5 * math.sin(pulse_time * 3 + i)
+            px = cx + math.cos(angle) * point_radius
+            py = cy + math.sin(angle) * point_radius
+            
+            point_alpha = int(150 + 80 * math.sin(pulse_time * 4 + i))
+            point_size = 3 + 2 * math.sin(pulse_time * 2 + i * 0.5)
+            
+            pygame.draw.circle(
+                surface,
+                (*ENERGY_SHIELD_LIGHT_PURPLE, point_alpha),
+                (int(px), int(py)),
+                int(point_size)
+            )
+        
+        center_alpha = int(80 + 50 * math.sin(pulse_time * 3))
+        pygame.draw.circle(
+            surface,
+            (*ENERGY_SHIELD_PURPLE, center_alpha),
+            (cx, cy),
+            15,
+            0
+        )
+        
+        pygame.draw.circle(
+            surface,
+            (*ENERGY_SHIELD_LIGHT_PURPLE, int(100 + 50 * math.sin(pulse_time * 2))),
+            (cx, cy),
+            10,
+            0
+        )
+    
+    def _draw_ultimate_shield(self, surface, cx, cy, radius, pulse_time):
+        outer_radius = radius + 12
+        middle_radius = radius + 5
+        inner_radius = radius - 3
+        
+        for i in range(3):
+            angle = pulse_time * 2 + i * (math.pi * 2 / 3)
+            spiral_radius = outer_radius + 10 * math.sin(pulse_time + i)
+            
+            for j in range(3):
+                spiral_angle = angle + j * 0.3
+                spiral_px = cx + math.cos(spiral_angle) * (spiral_radius - j * 8)
+                spiral_py = cy + math.sin(spiral_angle) * (spiral_radius - j * 8)
+                
+                spiral_alpha = int(80 + 60 * math.sin(pulse_time * 3 + i + j))
+                pygame.draw.circle(
+                    surface,
+                    (*ULTIMATE_LIGHT_GOLD, spiral_alpha),
+                    (int(spiral_px), int(spiral_py)),
+                    4 - j
+                )
+        
+        pygame.draw.circle(
+            surface,
+            (*ULTIMATE_GOLD, int(100 + 60 * math.sin(pulse_time * 2.5))),
+            (cx, cy),
+            outer_radius,
+            3
+        )
+        
+        pygame.draw.circle(
+            surface,
+            (*ULTIMATE_LIGHT_GOLD, int(150 + 80 * math.sin(pulse_time * 3))),
+            (cx, cy),
+            middle_radius,
+            2
+        )
+        
+        pygame.draw.circle(
+            surface,
+            (*ULTIMATE_GOLD, int(200 + 50 * math.sin(pulse_time * 2))),
+            (cx, cy),
+            inner_radius,
+            0
+        )
+        
+        num_light_points = 12
+        for i in range(num_light_points):
+            angle = (i / num_light_points) * math.pi * 2 + pulse_time * 2
+            light_radius = middle_radius + 8 * math.sin(pulse_time * 2.5 + i)
+            lx = cx + math.cos(angle) * light_radius
+            ly = cy + math.sin(angle) * light_radius
+            
+            light_alpha = int(100 + 100 * math.sin(pulse_time * 4 + i * 0.8))
+            light_size = 2 + 3 * math.sin(pulse_time * 3 + i)
+            
+            pygame.draw.circle(
+                surface,
+                (*ULTIMATE_LIGHT_GOLD, light_alpha),
+                (int(lx), int(ly)),
+                max(1, int(light_size))
+            )
+        
+        for i in range(3):
+            ring_radius = 20 + i * 8
+            ring_alpha = int(120 + 80 * math.sin(pulse_time * 3 + i * 1.2))
+            ring_thickness = 2 if i == 1 else 1
+            
+            pygame.draw.circle(
+                surface,
+                (*ULTIMATE_GOLD, ring_alpha),
+                (cx, cy),
+                ring_radius,
+                ring_thickness
+            )
     
     def draw_game_ui(self, surface):
         score_text = get_font().render(f"分数: {self.score}", True, WHITE)
@@ -1019,6 +1336,12 @@ class Game:
                 pygame.draw.rect(surface, border_color[:3], (0, 0, border_thickness, SCREEN_HEIGHT))
                 pygame.draw.rect(surface, border_color[:3], (SCREEN_WIDTH - border_thickness, 0, border_thickness, SCREEN_HEIGHT))
         
+        if self.has_ultimate_mode:
+            seconds_remaining = max(0, (self.ultimate_duration + FPS - 1) // FPS)
+            
+            if seconds_remaining <= 2 and seconds_remaining > 0:
+                self._draw_ultimate_countdown_warning(surface, seconds_remaining)
+        
         if self.collision_happened and self.collision_delay > 0:
             if self.show_flash:
                 flash_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
@@ -1034,9 +1357,349 @@ class Game:
             collision_hint_rect = collision_hint.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 80))
             surface.blit(collision_hint, collision_hint_rect)
     
+    def _draw_ultimate_countdown_warning(self, surface, seconds_remaining):
+        warning_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        
+        flash_speed = 8 if seconds_remaining == 1 else 12
+        flash_frame = self.visual_effect_phase // flash_speed
+        should_flash = flash_frame % 2 == 0
+        
+        if should_flash:
+            border_thickness = 25
+            
+            if seconds_remaining == 1:
+                border_color = (255, 80, 0, 180)
+            else:
+                border_color = (255, 150, 0, 120)
+            
+            pygame.draw.rect(warning_surface, border_color, (0, 0, SCREEN_WIDTH, border_thickness))
+            pygame.draw.rect(warning_surface, border_color, (0, SCREEN_HEIGHT - border_thickness, SCREEN_WIDTH, border_thickness))
+            pygame.draw.rect(warning_surface, border_color, (0, 0, border_thickness, SCREEN_HEIGHT))
+            pygame.draw.rect(warning_surface, border_color, (SCREEN_WIDTH - border_thickness, 0, border_thickness, SCREEN_HEIGHT))
+            
+            corner_size = 80
+            corner_alpha = int(border_color[3] * 1.3)
+            corner_color = (border_color[0], border_color[1], border_color[2], min(255, corner_alpha))
+            
+            pygame.draw.rect(warning_surface, corner_color, (0, 0, corner_size, border_thickness))
+            pygame.draw.rect(warning_surface, corner_color, (0, 0, border_thickness, corner_size))
+            pygame.draw.rect(warning_surface, corner_color, (SCREEN_WIDTH - corner_size, 0, corner_size, border_thickness))
+            pygame.draw.rect(warning_surface, corner_color, (SCREEN_WIDTH - border_thickness, 0, border_thickness, corner_size))
+            pygame.draw.rect(warning_surface, corner_color, (0, SCREEN_HEIGHT - border_thickness, corner_size, border_thickness))
+            pygame.draw.rect(warning_surface, corner_color, (0, SCREEN_HEIGHT - corner_size, border_thickness, corner_size))
+            pygame.draw.rect(warning_surface, corner_color, (SCREEN_WIDTH - corner_size, SCREEN_HEIGHT - border_thickness, corner_size, border_thickness))
+            pygame.draw.rect(warning_surface, corner_color, (SCREEN_WIDTH - border_thickness, SCREEN_HEIGHT - corner_size, border_thickness, corner_size))
+        
+        from game.core.utils import get_large_font, get_font
+        text_scale = 1.2 + 0.3 * math.sin(self.visual_effect_phase * 0.2)
+        
+        countdown_text = get_large_font().render(f"{seconds_remaining}", True, (255, 200, 0))
+        scaled_size = int(countdown_text.get_width() * text_scale), int(countdown_text.get_height() * text_scale)
+        countdown_scaled = pygame.transform.scale(countdown_text, scaled_size)
+        countdown_rect = countdown_scaled.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
+        
+        if should_flash:
+            surface.blit(warning_surface, (0, 0))
+        
+        surface.blit(countdown_scaled, countdown_rect)
+        
+        hint_text = get_font().render("终极模式即将结束!", True, (255, 220, 100))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        surface.blit(hint_text, hint_rect)
+    
     def draw_difficulty_level_up(self, surface):
         if self.difficulty_system and self.difficulty_system.should_display_level_up():
             self.difficulty_system.draw_level_up(surface, SCREEN_WIDTH, SCREEN_HEIGHT)
+    
+    def draw_ultimate_golden_halo(self, surface):
+        if not self.has_ultimate_mode:
+            return
+        
+        pulse_time = self.visual_effect_phase * 0.05
+        base_alpha = int(70 + 50 * math.sin(pulse_time * 1.5))
+        max_border_thickness = 35
+        
+        halo_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        
+        self._draw_gradient_border(halo_surface, max_border_thickness, base_alpha, pulse_time)
+        
+        self._draw_corner_decorations(halo_surface, base_alpha, pulse_time)
+        
+        self._draw_flowing_light_points(halo_surface, pulse_time)
+        
+        surface.blit(halo_surface, (0, 0))
+    
+    def _draw_gradient_border(self, surface, max_thickness, base_alpha, pulse_time):
+        for layer in range(5):
+            layer_thickness = max_thickness - layer * 6
+            layer_alpha = max(0, min(255, int(base_alpha * (0.3 + 0.15 * layer))))
+            
+            pulse_offset = int(2 * math.sin(pulse_time * 2 + layer * 0.8))
+            actual_thickness = max(1, layer_thickness + pulse_offset)
+            
+            r = min(255, int(ULTIMATE_GOLD[0] * (0.8 + 0.04 * layer)))
+            g = min(255, int(ULTIMATE_GOLD[1] * (0.85 + 0.03 * layer)))
+            b = min(255, int(ULTIMATE_GOLD[2] * (0.7 + 0.06 * layer)))
+            
+            border_color = (r, g, b, layer_alpha)
+            
+            pygame.draw.rect(
+                surface,
+                border_color,
+                (0, 0, SCREEN_WIDTH, actual_thickness)
+            )
+            pygame.draw.rect(
+                surface,
+                border_color,
+                (0, SCREEN_HEIGHT - actual_thickness, SCREEN_WIDTH, actual_thickness)
+            )
+            pygame.draw.rect(
+                surface,
+                border_color,
+                (0, 0, actual_thickness, SCREEN_HEIGHT)
+            )
+            pygame.draw.rect(
+                surface,
+                border_color,
+                (SCREEN_WIDTH - actual_thickness, 0, actual_thickness, SCREEN_HEIGHT)
+            )
+    
+    def _draw_corner_decorations(self, surface, base_alpha, pulse_time):
+        corner_size = 50
+        inner_corner_size = 35
+        
+        corners = [
+            (0, 0),
+            (SCREEN_WIDTH, 0),
+            (0, SCREEN_HEIGHT),
+            (SCREEN_WIDTH, SCREEN_HEIGHT)
+        ]
+        
+        for corner_idx, (cx, cy) in enumerate(corners):
+            angle_offset = corner_idx * math.pi * 0.5 + pulse_time * 0.5
+            
+            for ring in range(3):
+                ring_radius = corner_size - ring * 12
+                ring_alpha_unclamped = int(base_alpha * (0.5 + 0.25 * ring) * (1.2 + 0.3 * math.sin(pulse_time * 2 + corner_idx + ring)))
+                ring_alpha = max(0, min(255, ring_alpha_unclamped))
+                
+                for dot_angle in range(0, 90, 15):
+                    rad = math.radians(dot_angle) + angle_offset
+                    dot_radius = ring_radius + 3 * math.sin(pulse_time * 3 + dot_angle * 0.1 + corner_idx)
+                    
+                    if corner_idx == 0:
+                        dx = math.cos(rad) * dot_radius
+                        dy = math.sin(rad) * dot_radius
+                    elif corner_idx == 1:
+                        dx = -math.cos(rad) * dot_radius
+                        dy = math.sin(rad) * dot_radius
+                    elif corner_idx == 2:
+                        dx = math.cos(rad) * dot_radius
+                        dy = -math.sin(rad) * dot_radius
+                    else:
+                        dx = -math.cos(rad) * dot_radius
+                        dy = -math.sin(rad) * dot_radius
+                    
+                    dot_x = int(cx + dx)
+                    dot_y = int(cy + dy)
+                    dot_size = max(1, int(2 + ring * 0.5 + math.sin(pulse_time * 4 + dot_angle) * 1))
+                    
+                    dot_color = (
+                        ULTIMATE_LIGHT_GOLD[0] if ring % 2 == 0 else ULTIMATE_GOLD[0],
+                        ULTIMATE_LIGHT_GOLD[1] if ring % 2 == 0 else ULTIMATE_GOLD[1],
+                        ULTIMATE_LIGHT_GOLD[2] if ring % 2 == 0 else ULTIMATE_GOLD[2],
+                        ring_alpha
+                    )
+                    
+                    pygame.draw.circle(surface, dot_color, (dot_x, dot_y), dot_size)
+            
+            decor_alpha = int(base_alpha * 1.5 * (1.1 + 0.3 * math.sin(pulse_time * 2.5 + corner_idx)))
+            decor_color = (*ULTIMATE_GOLD, min(255, decor_alpha))
+            
+            if corner_idx == 0:
+                pygame.draw.rect(surface, decor_color, (0, 0, corner_size, 8))
+                pygame.draw.rect(surface, decor_color, (0, 0, 8, corner_size))
+            elif corner_idx == 1:
+                pygame.draw.rect(surface, decor_color, (SCREEN_WIDTH - corner_size, 0, corner_size, 8))
+                pygame.draw.rect(surface, decor_color, (SCREEN_WIDTH - 8, 0, 8, corner_size))
+            elif corner_idx == 2:
+                pygame.draw.rect(surface, decor_color, (0, SCREEN_HEIGHT - 8, corner_size, 8))
+                pygame.draw.rect(surface, decor_color, (0, SCREEN_HEIGHT - corner_size, 8, corner_size))
+            else:
+                pygame.draw.rect(surface, decor_color, (SCREEN_WIDTH - corner_size, SCREEN_HEIGHT - 8, corner_size, 8))
+                pygame.draw.rect(surface, decor_color, (SCREEN_WIDTH - 8, SCREEN_HEIGHT - corner_size, 8, corner_size))
+    
+    def _draw_flowing_light_points(self, surface, pulse_time):
+        num_points_per_side = 6
+        
+        for side in range(4):
+            for i in range(num_points_per_side):
+                progress = (i / num_points_per_side + pulse_time * 0.8 + side * 0.1) % 1.0
+                
+                point_alpha = int(80 + 70 * math.sin(progress * math.pi))
+                point_size = int(2 + 2 * math.sin(progress * math.pi))
+                
+                if point_alpha <= 0:
+                    continue
+                
+                if side == 0:
+                    x = int(progress * SCREEN_WIDTH)
+                    y = 20 + int(5 * math.sin(pulse_time * 3 + i))
+                elif side == 1:
+                    x = int(SCREEN_WIDTH - 20 - 5 * math.sin(pulse_time * 3 + i))
+                    y = int(progress * SCREEN_HEIGHT)
+                elif side == 2:
+                    x = int((1 - progress) * SCREEN_WIDTH)
+                    y = int(SCREEN_HEIGHT - 20 - 5 * math.sin(pulse_time * 3 + i))
+                else:
+                    x = int(20 + 5 * math.sin(pulse_time * 3 + i))
+                    y = int((1 - progress) * SCREEN_HEIGHT)
+                
+                point_color = (
+                    ULTIMATE_LIGHT_GOLD[0] if i % 2 == 0 else ULTIMATE_GOLD[0],
+                    ULTIMATE_LIGHT_GOLD[1] if i % 2 == 0 else ULTIMATE_GOLD[1],
+                    ULTIMATE_LIGHT_GOLD[2] if i % 2 == 0 else ULTIMATE_GOLD[2],
+                    point_alpha
+                )
+                
+                pygame.draw.circle(surface, point_color, (x, y), max(1, point_size))
+                
+                if point_size >= 2:
+                    trail_alpha = int(point_alpha * 0.5)
+                    trail_color = (
+                        point_color[0],
+                        point_color[1],
+                        point_color[2],
+                        trail_alpha
+                    )
+                    pygame.draw.circle(surface, trail_color, (x, y), point_size + 1)
+    
+    def draw_ultimate_transition_effects(self, surface):
+        if self.ultimate_transition_in:
+            self._draw_ultimate_activate_transition(surface)
+        
+        if self.ultimate_transition_out:
+            self._draw_ultimate_deactivate_transition(surface)
+    
+    def _draw_ultimate_activate_transition(self, surface):
+        progress = self.ultimate_transition_timer / self.ultimate_transition_max
+        
+        if progress >= 1.0:
+            return
+        
+        transition_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        
+        flash_alpha = int(255 * (1.0 - progress) * 0.6)
+        if flash_alpha > 0:
+            transition_surface.fill((255, 248, 220, flash_alpha))
+        
+        center_x = SCREEN_WIDTH // 2
+        center_y = SCREEN_HEIGHT // 2
+        max_radius = max(SCREEN_WIDTH, SCREEN_HEIGHT) // 1.5
+        
+        for ring in range(3):
+            ring_progress = progress - ring * 0.1
+            if ring_progress < 0:
+                continue
+            
+            ring_radius = int(max_radius * ring_progress)
+            ring_alpha = int(200 * (1.0 - ring_progress) * (0.7 + ring * 0.15))
+            
+            if ring_radius > 0 and ring_alpha > 0:
+                if ring == 0:
+                    ring_color = (*ULTIMATE_GOLD, ring_alpha)
+                elif ring == 1:
+                    ring_color = (*ULTIMATE_LIGHT_GOLD, ring_alpha)
+                else:
+                    ring_color = (255, 255, 200, ring_alpha)
+                
+                pygame.draw.circle(
+                    transition_surface,
+                    ring_color,
+                    (center_x, center_y),
+                    ring_radius,
+                    max(1, int(8 - ring * 2))
+                )
+        
+        particle_count = int(12 * progress)
+        for i in range(particle_count):
+            angle = (i / 12) * math.pi * 2 + progress * 3
+            dist = max_radius * progress * 0.8
+            px = center_x + math.cos(angle) * dist
+            py = center_y + math.sin(angle) * dist
+            
+            particle_alpha = int(180 * (1.0 - progress))
+            particle_size = int(3 + 2 * math.sin(progress * math.pi * 2 + i))
+            
+            if particle_alpha > 0:
+                pygame.draw.circle(
+                    transition_surface,
+                    (*ULTIMATE_LIGHT_GOLD, particle_alpha),
+                    (int(px), int(py)),
+                    particle_size
+                )
+        
+        surface.blit(transition_surface, (0, 0))
+    
+    def _draw_ultimate_deactivate_transition(self, surface):
+        progress = self.ultimate_transition_timer / self.ultimate_transition_max
+        
+        if progress >= 1.0:
+            return
+        
+        transition_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        
+        fade_alpha = int(150 * progress * 0.4)
+        if fade_alpha > 0:
+            transition_surface.fill((0, 0, 50, fade_alpha))
+        
+        center_x = SCREEN_WIDTH // 2
+        center_y = SCREEN_HEIGHT // 2
+        max_radius = max(SCREEN_WIDTH, SCREEN_HEIGHT) // 1.2
+        
+        for ring in range(3):
+            ring_progress = 1.0 - progress - ring * 0.1
+            if ring_progress < 0:
+                continue
+            
+            ring_radius = int(max_radius * ring_progress)
+            ring_alpha = int(180 * ring_progress * (0.7 + ring * 0.15))
+            
+            if ring_radius > 0 and ring_alpha > 0:
+                if ring == 0:
+                    ring_color = (*ULTIMATE_GOLD, ring_alpha)
+                elif ring == 1:
+                    ring_color = (*ULTIMATE_LIGHT_GOLD, ring_alpha)
+                else:
+                    ring_color = (255, 255, 200, ring_alpha)
+                
+                pygame.draw.circle(
+                    transition_surface,
+                    ring_color,
+                    (center_x, center_y),
+                    ring_radius,
+                    max(1, int(6 - ring * 1.5))
+                )
+        
+        particle_count = int(8 * (1.0 - progress))
+        for i in range(particle_count):
+            angle = (i / 8) * math.pi * 2 - progress * 2
+            dist = max_radius * (1.0 - progress) * 0.7
+            px = center_x + math.cos(angle) * dist
+            py = center_y + math.sin(angle) * dist
+            
+            particle_alpha = int(150 * (1.0 - progress))
+            particle_size = int(2 + 1.5 * math.sin((1.0 - progress) * math.pi + i))
+            
+            if particle_alpha > 0:
+                pygame.draw.circle(
+                    transition_surface,
+                    (*ULTIMATE_LIGHT_GOLD, particle_alpha),
+                    (int(px), int(py)),
+                    particle_size
+                )
+        
+        surface.blit(transition_surface, (0, 0))
     
     def draw(self, surface, mouse_pos):
         if self.shake_offset_x != 0 or self.shake_offset_y != 0:
@@ -1072,6 +1735,8 @@ class Game:
             
             self.draw_game_ui(draw_surface)
             self.draw_warning_effects(draw_surface)
+            self.draw_ultimate_golden_halo(draw_surface)
+            self.draw_ultimate_transition_effects(draw_surface)
             self.draw_difficulty_level_up(draw_surface)
             
             if self.paused:

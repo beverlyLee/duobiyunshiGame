@@ -26,6 +26,10 @@ PENETRATING_PURPLE = (148, 0, 211)
 FREEZE_CYAN = (0, 255, 255)
 ICE_BLUE = (135, 206, 250)
 BLUE_YELLOW_MIX = (200, 200, 100)
+ENERGY_SHIELD_PURPLE = (138, 43, 226)
+ENERGY_SHIELD_LIGHT_PURPLE = (186, 85, 211)
+ULTIMATE_GOLD = (255, 215, 0)
+ULTIMATE_LIGHT_GOLD = (255, 248, 220)
 
 POWERUP_CONFIG = {
     POWERUP_SHIELD: {
@@ -63,6 +67,20 @@ SYNERGY_CONFIG = {
         "color": ICE_BLUE,
         "freeze_duration": FPS * 1,
         "freeze_chance": 0.3,
+    },
+    "energy_shield": {
+        "name": "能量护盾！",
+        "color": ENERGY_SHIELD_PURPLE,
+        "duration_extension": FPS * 3,
+        "shockwave_radius": 40,
+        "knockback_force": 30,
+    },
+    "ultimate": {
+        "name": "终极模式！",
+        "color": ULTIMATE_GOLD,
+        "duration": FPS * 7,
+        "bullet_damage_multiplier": 3,
+        "meteor_speed_multiplier": 0.25,
     }
 }
 
