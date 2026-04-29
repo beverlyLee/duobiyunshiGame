@@ -1,0 +1,96 @@
+{
+  "skill_points": 2,
+  "total_earned_points": 2,
+  "branches": [
+    {
+      "type": "attack",
+      "skills": [
+        {
+          "type": "basic_attack",
+          "current_level": 3,
+          "unlocked": true
+        },
+        {
+          "type": "bullet_damage",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "fire_rate",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "penetration",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "explosion_range",
+          "current_level": 0,
+          "unlocked": false
+        }
+      ]
+    },
+    {
+      "type": "defense",
+      "skills": [
+        {
+          "type": "basic_life",
+          "current_level": 3,
+          "unlocked": true
+        },
+        {
+          "type": "shield_strength",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "max_life",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "shield_duration",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "collision_damage_reduction",
+          "current_level": 0,
+          "unlocked": false
+        }
+      ]
+    },
+    {
+      "type": "mobility",
+      "skills": [
+        {
+          "type": "basic_move",
+          "current_level": 3,
+          "unlocked": true
+        },
+        {
+          "type": "move_speed",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "dodge_reward",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "combo_duration",
+          "current_level": 0,
+          "unlocked": false
+        },
+        {
+          "type": "powerup_duration",
+          "current_level": 0,
+          "unlocked": false
+        }
+      ]
+    }
+  ]
+}

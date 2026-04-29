@@ -236,3 +236,20 @@ METEOR_CONFIG = {
         "glow_color": METEOR_ORANGE,
     }
 }
+
+SKILL_TREE_COLOR = {
+    "ATTACK": (255, 100, 100),
+    "DEFENSE": (100, 150, 255),
+    "MOBILITY": (100, 255, 150),
+    "UNLOCKED": (255, 215, 0),
+    "LOCKED": (80, 80, 80),
+    "AVAILABLE": (100, 200, 255),
+    "MAXED": (255, 215, 0),
+    "HOVER": (255, 255, 100),
+}
+
+SKILL_NODE_SIZE = 50
+SKILL_NODE_RADIUS = 25
+SKILL_ROW_SPACING = 80
+SKILL_BRANCH_WIDTH = 220
+

@@ -17,6 +17,7 @@ from game.config import (
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
+from game.core.skill_tree import get_skill_tree_manager, SkillTreeManager
 from game.entities.particle import ParticleSystem
 from game.entities.ship import Ship
 from game.entities.meteor import Meteor
@@ -35,6 +36,8 @@ except ImportError:
 
 class Game:
     def __init__(self):
+        self.skill_tree = get_skill_tree_manager()
+        
         self.ship = Ship()
         self.meteors = []
         self.powerups = []
@@ -43,7 +46,7 @@ class Game:
         self.text_manager = FloatingTextManager()
         self.score = 0
         self.lives = 3
-        self.max_lives = 3
+        self.max_lives = 3 + self.skill_tree.get_total_max_life()
         self.game_over = False
         self.paused = False
         self.meteor_timer = 0
@@ -86,7 +89,8 @@ class Game:
         self.has_bullet = False
         self.bullet_duration = 0
         self.bullet_cooldown = 0
-        self.bullet_cooldown_frames = 3
+        self.base_bullet_cooldown_frames = 3
+        self.bullet_cooldown_frames = max(1, self.base_bullet_cooldown_frames - self.skill_tree.get_fire_rate_reduction())
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
@@ -170,13 +174,20 @@ class Game:
             self._save_high_score()
         
         self.ship = Ship()
+        self.ship.speed = 7 + self.skill_tree.get_total_move_speed()
+        
         self.meteors = []
         self.powerups = []
         self.bullets = []
         self.particle_system = ParticleSystem()
         self.text_manager = FloatingTextManager()
         self.score = 0
-        self.lives = 3
+        
+        base_lives = 3
+        skill_lives = self.skill_tree.get_total_max_life()
+        self.max_lives = base_lives + skill_lives
+        self.lives = self.max_lives
+        
         self.game_over = False
         self.paused = False
         self.meteor_timer = 0
@@ -210,6 +221,7 @@ class Game:
         self.has_bullet = False
         self.bullet_duration = 0
         self.bullet_cooldown = 0
+        self.bullet_cooldown_frames = max(1, self.base_bullet_cooldown_frames - self.skill_tree.get_fire_rate_reduction())
         
         self.meteor_slow = False
         self.meteor_slow_duration = 0
@@ -236,6 +248,9 @@ class Game:
         
         if self.combo_system:
             self.combo_system = ComboSystem()
+            combo_extra = self.skill_tree.get_combo_duration_extra()
+            if combo_extra > 0:
+                self.combo_system.combo_timeout = FPS * 2 + combo_extra
         
         if self.difficulty_system:
             self.difficulty_system = DifficultySystem()
@@ -280,6 +295,13 @@ class Game:
                 size_multiplier = SYNERGY_CONFIG["penetrating"]["size_multiplier"]
             elif self.has_bullet and self.meteor_slow:
                 is_freezing = True
+            
+            skill_penetration = self.skill_tree.get_penetration_count()
+            if skill_penetration > 0 and not is_penetrating:
+                is_penetrating = True
+                penetration_count = skill_penetration
+            elif skill_penetration > 0 and is_penetrating:
+                penetration_count += skill_penetration
             
             self.bullets.append(Bullet(
                 ship_center_x, 
@@ -370,7 +392,9 @@ class Game:
     
     def create_explosion_chain(self, source_meteor, chain_level=0):
         explosion_center = source_meteor.get_center()
-        explosion_radius = source_meteor.get_explosion_radius()
+        base_radius = source_meteor.get_explosion_radius()
+        explosion_range_multiplier = self.skill_tree.get_explosion_range_multiplier()
+        explosion_radius = int(base_radius * explosion_range_multiplier)
         
         self.particle_system.create_large_explosion(
             explosion_center[0], explosion_center[1], explosion_radius
@@ -439,7 +463,7 @@ class Game:
                     if meteor.is_explosive():
                         meteor.activate_fuse()
                     
-                    base_damage = 2
+                    base_damage = 2 + self.skill_tree.get_total_bullet_damage()
                     if self.has_ultimate_mode:
                         base_damage *= SYNERGY_CONFIG["ultimate"]["bullet_damage_multiplier"]
                     bullet_damage = meteor.get_bullet_damage(base_damage)
@@ -585,24 +609,38 @@ class Game:
                     self.collision_x = (ship_center[0] + meteor_center[0]) // 2
                     self.collision_y = (ship_center[1] + meteor_center[1]) // 2
                     
-                    self.lives -= 1
+                    collision_reduction = self.skill_tree.get_collision_damage_reduction()
+                    damage_avoided = False
                     
-                    self.audio_manager.play_sound(SoundType.COLLISION)
+                    if collision_reduction > 0:
+                        if random.random() < collision_reduction:
+                            damage_avoided = True
                     
-                    if self.lives <= 0:
-                        self.collision_happened = True
-                        self.collision_delay = self.collision_delay_frames
-                        self.flash_timer = 0
-                        self.collision_particle_timer = 0
-                        self.audio_manager.play_sound(SoundType.GAME_OVER)
-                    else:
-                        self.warning_flash = True
-                        self.warning_flash_timer = 0
+                    if damage_avoided:
                         self.text_manager.add_text(
                             SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
-                            f"生命值 -1！剩余 {self.lives} 条命",
-                            RED, duration=90, float_speed=0, font_size=36
+                            "伤害减免！",
+                            (100, 200, 255), duration=90, float_speed=0, font_size=36
                         )
+                    else:
+                        self.lives -= 1
+                        
+                        self.audio_manager.play_sound(SoundType.COLLISION)
+                        
+                        if self.lives <= 0:
+                            self.collision_happened = True
+                            self.collision_delay = self.collision_delay_frames
+                            self.flash_timer = 0
+                            self.collision_particle_timer = 0
+                            self.audio_manager.play_sound(SoundType.GAME_OVER)
+                        else:
+                            self.warning_flash = True
+                            self.warning_flash_timer = 0
+                            self.text_manager.add_text(
+                                SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50,
+                                f"生命值 -1！剩余 {self.lives} 条命",
+                                RED, duration=90, float_speed=0, font_size=36
+                            )
                 return True
         return False
     
@@ -619,18 +657,21 @@ class Game:
                 if self.screen_shake:
                     self.screen_shake.add_trauma(0.1)
                 
+                powerup_duration_multiplier = self.skill_tree.get_powerup_duration_multiplier()
+                shield_duration_extra = self.skill_tree.get_shield_duration_extra()
+                
                 if powerup.type == POWERUP_SHIELD:
                     self.has_shield = True
-                    self.shield_duration = powerup.config["duration"]
+                    self.shield_duration = int(powerup.config["duration"] * powerup_duration_multiplier) + shield_duration_extra
                     self.shield_flash_timer = 0
                     self.show_shield_outline = True
                 elif powerup.type == POWERUP_BULLET:
                     self.has_bullet = True
-                    self.bullet_duration = powerup.config["duration"]
+                    self.bullet_duration = int(powerup.config["duration"] * powerup_duration_multiplier)
                     self.bullet_cooldown = 0
                 elif powerup.type == POWERUP_SLOW:
                     self.meteor_slow = True
-                    self.meteor_slow_duration = powerup.config["duration"]
+                    self.meteor_slow_duration = int(powerup.config["duration"] * powerup_duration_multiplier)
                 
                 if self.has_shield and self.meteor_slow and not (self.has_shield and self.has_bullet):
                     self.has_energy_shield = True
@@ -693,6 +734,7 @@ class Game:
             self.difficulty_system.update(self.score)
             if self.difficulty_system.has_just_leveled_up():
                 self.audio_manager.play_sound(SoundType.LEVEL_UP)
+                self.skill_tree.add_skill_points(1)
         
         if not self.game_started or self.paused:
             self.particle_system.update()
@@ -837,7 +879,9 @@ class Game:
                     self.meteors.remove(meteor)
                     
                     score_value = meteor.config.get("score", 10)
-                    self.add_score_with_combo(score_value, "dodge")
+                    dodge_multiplier = self.skill_tree.get_dodge_reward_multiplier()
+                    final_score = int(score_value * dodge_multiplier)
+                    self.add_score_with_combo(final_score, "dodge")
                     self.audio_manager.play_sound(SoundType.DODGE)
                 continue
             
@@ -869,7 +913,9 @@ class Game:
                 self.meteors.remove(meteor)
                 
                 score_value = meteor.config.get("score", 10)
-                self.add_score_with_combo(score_value, "dodge")
+                dodge_multiplier = self.skill_tree.get_dodge_reward_multiplier()
+                final_score = int(score_value * dodge_multiplier)
+                self.add_score_with_combo(final_score, "dodge")
                 self.audio_manager.play_sound(SoundType.DODGE)
         
         for powerup in self.powerups[:]:
