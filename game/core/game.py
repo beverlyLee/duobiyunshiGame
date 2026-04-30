@@ -816,13 +816,14 @@ class Game:
         else:
             self.visual_effect_phase += 1
         
-        if self.has_bullet and not self.has_ultimate_mode:
-            self.bullet_duration -= 1
+        if self.has_bullet:
+            if not self.has_ultimate_mode:
+                self.bullet_duration -= 1
+                if self.bullet_duration <= 0:
+                    self.has_bullet = False
+                    self.bullet_cooldown = 0
             if self.bullet_cooldown > 0:
                 self.bullet_cooldown -= 1
-            if self.bullet_duration <= 0:
-                self.has_bullet = False
-                self.bullet_cooldown = 0
         
         if self.meteor_slow and not self.has_ultimate_mode:
             self.meteor_slow_duration -= 1
