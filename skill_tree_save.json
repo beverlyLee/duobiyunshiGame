@@ -1,6 +1,6 @@
 {
-  "skill_points": 2,
-  "total_earned_points": 2,
+  "skill_points": 7,
+  "total_earned_points": 9,
   "branches": [
     {
       "type": "attack",
@@ -12,13 +12,13 @@
         },
         {
           "type": "bullet_damage",
-          "current_level": 0,
-          "unlocked": false
+          "current_level": 1,
+          "unlocked": true
         },
         {
           "type": "fire_rate",
-          "current_level": 0,
-          "unlocked": false
+          "current_level": 1,
+          "unlocked": true
         },
         {
           "type": "penetration",

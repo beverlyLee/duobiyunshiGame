@@ -6,7 +6,7 @@ from game.config import (
     SKILL_TREE_COLOR,
     SKILL_NODE_RADIUS, SKILL_ROW_SPACING, SKILL_BRANCH_WIDTH
 )
-from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
+from game.core.utils import get_chinese_font, get_font, get_large_font, get_medium_font, get_small_font
 from game.core.skill_tree import (
     SkillTreeManager, Skill, SkillBranch, SkillBranchType, SkillType,
     get_skill_tree_manager
@@ -23,7 +23,7 @@ class SkillNodeUI:
         
         base_x = self._get_branch_base_x(branch_type)
         self.x = base_x
-        self.y = 155 + row * 75
+        self.y = 185 + row * 75
         
         self.radius = 22
         self.hovered = False
@@ -103,20 +103,12 @@ class SkillNodeUI:
         
         level_text = f"{self.skill.current_level}/{self.skill.max_level}"
         
-        try:
-            text_font = pygame.font.Font(None, 18)
-        except:
-            text_font = get_small_font()
-        
+        text_font = get_chinese_font(18)
         text_surf = text_font.render(level_text, True, WHITE)
         text_rect = text_surf.get_rect(center=(self.x, self.y))
         surface.blit(text_surf, text_rect)
         
-        try:
-            name_font = pygame.font.Font(None, 14)
-        except:
-            name_font = get_small_font()
-        
+        name_font = get_chinese_font(14)
         name_surf = name_font.render(self.skill.name, True, (200, 200, 200))
         name_rect = name_surf.get_rect(center=(self.x, self.y + display_radius + 12))
         surface.blit(name_surf, name_rect)
@@ -162,12 +154,8 @@ class SkillNodeUI:
                 lines.append("")
                 lines.append("需要: " + ", ".join(req_names))
         
-        try:
-            title_font = pygame.font.Font(None, 22)
-            normal_font = pygame.font.Font(None, 16)
-        except:
-            title_font = get_small_font()
-            normal_font = get_small_font()
+        title_font = get_chinese_font(22)
+        normal_font = get_chinese_font(16)
         
         max_width = 0
         for i, line in enumerate(lines):
@@ -277,11 +265,11 @@ class SkillTreeUI:
     
     def get_branch_title_pos(self, branch_type: SkillBranchType):
         if branch_type == SkillBranchType.ATTACK:
-            return SCREEN_WIDTH // 4, 125
+            return SCREEN_WIDTH // 4, 110
         elif branch_type == SkillBranchType.DEFENSE:
-            return SCREEN_WIDTH // 2, 125
+            return SCREEN_WIDTH // 2, 110
         else:
-            return SCREEN_WIDTH * 3 // 4, 125
+            return SCREEN_WIDTH * 3 // 4, 110
     
     def _draw_connections(self, surface):
         from game.core.skill_tree import SKILL_CONFIG
@@ -355,37 +343,81 @@ class SkillTreeUI:
             star_alpha = int(40 + 25 * math.sin(star_phase + i * 0.3))
             pygame.draw.circle(surface, (star_alpha, star_alpha, star_alpha), (star_x, star_y), 1)
         
-        try:
-            title_font = pygame.font.Font(None, 48)
-        except:
-            title_font = get_medium_font()
-        
+        title_y = 32
+        title_font = get_chinese_font(56)
         title_text = title_font.render("技能树", True, YELLOW)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 35))
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, title_y))
+        
+        glow_alpha = 60 + int(20 * math.sin(self.visual_phase * 0.8))
+        for offset in range(3, 0, -1):
+            glow_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+            glow_text = title_font.render("技能树", True, YELLOW)
+            glow_text.set_alpha(glow_alpha - offset * 15)
+            glow_rect = glow_text.get_rect(center=(SCREEN_WIDTH // 2, title_y))
+            glow_surf.blit(glow_text, glow_rect)
+            surface.blit(glow_surf, (0, 0))
+        
         surface.blit(title_text, title_rect)
         
-        try:
-            points_font = pygame.font.Font(None, 32)
-        except:
-            points_font = get_font()
+        underline_y = title_y + title_rect.height // 2 + 8
+        underline_width = 120
+        underline_x = SCREEN_WIDTH // 2 - underline_width // 2
+        pygame.draw.rect(surface, YELLOW, (underline_x, underline_y, underline_width, 3))
         
-        points_text = points_font.render(f"可用技能点: {self.manager.skill_points}", True, WHITE)
-        points_rect = points_text.get_rect(center=(SCREEN_WIDTH // 2, 75))
-        surface.blit(points_text, points_rect)
+        shadow_surf = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        pygame.draw.rect(shadow_surf, (YELLOW[0], YELLOW[1], YELLOW[2], 100), 
+                        (underline_x - 20, underline_y + 1, underline_width + 40, 1))
+        surface.blit(shadow_surf, (0, 0))
+        
+        points_y = underline_y + 35
+        points_label_font = get_chinese_font(26)
+        points_value_font = get_chinese_font(36)
+        
+        points_label = "可用技能点:"
+        points_value = str(self.manager.skill_points)
+        
+        label_surf = points_label_font.render(points_label, True, (200, 200, 200))
+        value_surf = points_value_font.render(points_value, True, YELLOW)
+        
+        total_width = label_surf.get_width() + value_surf.get_width() + 15
+        start_x = SCREEN_WIDTH // 2 - total_width // 2
+        
+        box_padding = 12
+        box_width = total_width + box_padding * 2
+        box_height = max(label_surf.get_height(), value_surf.get_height()) + box_padding * 2
+        box_x = SCREEN_WIDTH // 2 - box_width // 2
+        box_y = points_y - box_height // 2
+        
+        box_surface = pygame.Surface((box_width, box_height), pygame.SRCALPHA)
+        pygame.draw.rect(box_surface, (40, 40, 70, 180), (0, 0, box_width, box_height), border_radius=10)
+        pygame.draw.rect(box_surface, (100, 100, 150, 150), (0, 0, box_width, box_height), 2, border_radius=10)
+        surface.blit(box_surface, (box_x, box_y))
+        
+        surface.blit(label_surf, (start_x, points_y - label_surf.get_height() // 2))
+        surface.blit(value_surf, (start_x + label_surf.get_width() + 15, points_y - value_surf.get_height() // 2))
         
         from game.core.skill_tree import SKILL_CONFIG
         
-        try:
-            branch_title_font = pygame.font.Font(None, 28)
-        except:
-            branch_title_font = get_font()
+        branch_title_y = points_y + 45
+        branch_title_font = get_chinese_font(30)
         
         for branch_type in SkillBranchType:
             branch_config = SKILL_CONFIG[branch_type]
-            title_x, title_y = self.get_branch_title_pos(branch_type)
+            title_x, _ = self.get_branch_title_pos(branch_type)
             
             branch_title = branch_title_font.render(branch_config["name"], True, branch_config["color"])
-            branch_title_rect = branch_title.get_rect(center=(title_x, title_y))
+            branch_title_rect = branch_title.get_rect(center=(title_x, branch_title_y))
+            
+            title_bg_width = branch_title_rect.width + 30
+            title_bg_height = branch_title_rect.height + 10
+            title_bg_x = title_x - title_bg_width // 2
+            title_bg_y = branch_title_y - title_bg_height // 2
+            
+            title_bg_surface = pygame.Surface((title_bg_width, title_bg_height), pygame.SRCALPHA)
+            bg_color = (*branch_config["color"], 40)
+            pygame.draw.rect(title_bg_surface, bg_color, (0, 0, title_bg_width, title_bg_height), border_radius=8)
+            surface.blit(title_bg_surface, (title_bg_x, title_bg_y))
+            
             surface.blit(branch_title, branch_title_rect)
         
         self._draw_connections(surface)
