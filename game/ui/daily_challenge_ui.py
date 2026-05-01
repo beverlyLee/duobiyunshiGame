@@ -33,22 +33,22 @@ class DailyChallengeUI:
         
     def _init_buttons(self):
         self.play_challenge_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 50,
+            SCREEN_WIDTH // 2 - 100, 370,
             200, 50, "开始挑战", YELLOW, (200, 180, 0)
         )
         
         self.view_leaderboard_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 120,
+            SCREEN_WIDTH // 2 - 100, 430,
             200, 50, "排行榜", LIGHT_BLUE, (70, 170, 200)
         )
         
         self.view_rewards_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 190,
+            SCREEN_WIDTH // 2 - 100, 490,
             200, 50, "奖励系统", GREEN, (0, 200, 0)
         )
         
         self.view_history_button = Button(
-            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 260,
+            SCREEN_WIDTH // 2 - 100, 550,
             200, 50, "历史记录", GRAY, (100, 100, 100)
         )
         
@@ -141,16 +141,19 @@ class DailyChallengeUI:
         surface.blit(overlay, (0, 0))
         
         title_text = get_large_font().render("每日挑战", True, YELLOW)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 200))
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
         surface.blit(title_text, title_rect)
         
         today_challenge = self.challenge_manager.get_current_challenge()
+        
+        self._draw_modifiers_preview(surface, today_challenge)
+        
         date_text = get_font().render(f"日期: {today_challenge.date_str}", True, WHITE)
-        date_rect = date_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 140))
+        date_rect = date_text.get_rect(center=(SCREEN_WIDTH // 2, 270))
         surface.blit(date_text, date_rect)
         
         stars_text = get_medium_font().render(f"累计星星: {self.challenge_manager.total_stars} ⭐", True, (255, 215, 0))
-        stars_rect = stars_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
+        stars_rect = stars_text.get_rect(center=(SCREEN_WIDTH // 2, 300))
         surface.blit(stars_text, stars_rect)
         
         today_record = self.challenge_manager.get_today_record()
@@ -158,10 +161,8 @@ class DailyChallengeUI:
             completed_text = get_font().render(f"今日已完成! 最高分: {today_record.score} 星星: {today_record.stars}", True, GREEN)
         else:
             completed_text = get_font().render("今日挑战未完成", True, (200, 200, 200))
-        completed_rect = completed_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 50))
+        completed_rect = completed_text.get_rect(center=(SCREEN_WIDTH // 2, 330))
         surface.blit(completed_text, completed_rect)
-        
-        self._draw_modifiers_preview(surface, today_challenge)
         
         self.play_challenge_button.draw(surface, mouse_pos)
         self.view_leaderboard_button.draw(surface, mouse_pos)
@@ -170,7 +171,7 @@ class DailyChallengeUI:
     
     def _draw_modifiers_preview(self, surface: pygame.Surface, challenge: DailyChallenge):
         modifier_configs = challenge.get_modifier_configs()
-        start_y = SCREEN_HEIGHT // 2 - 180
+        start_y = 120
         
         for i, modifier in enumerate(modifier_configs):
             x = SCREEN_WIDTH // 2 - 150
