@@ -33,23 +33,23 @@ class DailyChallengeUI:
         
     def _init_buttons(self):
         self.play_challenge_button = Button(
-            SCREEN_WIDTH // 2 - 100, 370,
-            200, 50, "开始挑战", YELLOW, (200, 180, 0)
+            SCREEN_WIDTH // 2 - 100, 405,
+            200, 45, "开始挑战", YELLOW, (200, 180, 0)
         )
         
         self.view_leaderboard_button = Button(
-            SCREEN_WIDTH // 2 - 100, 430,
-            200, 50, "排行榜", LIGHT_BLUE, (70, 170, 200)
+            SCREEN_WIDTH // 2 - 100, 455,
+            200, 45, "排行榜", LIGHT_BLUE, (70, 170, 200)
         )
         
         self.view_rewards_button = Button(
-            SCREEN_WIDTH // 2 - 100, 490,
-            200, 50, "奖励系统", GREEN, (0, 200, 0)
+            SCREEN_WIDTH // 2 - 100, 505,
+            200, 45, "奖励系统", GREEN, (0, 200, 0)
         )
         
         self.view_history_button = Button(
-            SCREEN_WIDTH // 2 - 100, 550,
-            200, 50, "历史记录", GRAY, (100, 100, 100)
+            SCREEN_WIDTH // 2 - 100, 555,
+            200, 45, "历史记录", GRAY, (100, 100, 100)
         )
         
         self.back_button = Button(
@@ -149,11 +149,11 @@ class DailyChallengeUI:
         self._draw_modifiers_preview(surface, today_challenge)
         
         date_text = get_font().render(f"日期: {today_challenge.date_str}", True, WHITE)
-        date_rect = date_text.get_rect(center=(SCREEN_WIDTH // 2, 270))
+        date_rect = date_text.get_rect(center=(SCREEN_WIDTH // 2, 290))
         surface.blit(date_text, date_rect)
         
         stars_text = get_medium_font().render(f"累计星星: {self.challenge_manager.total_stars} ⭐", True, (255, 215, 0))
-        stars_rect = stars_text.get_rect(center=(SCREEN_WIDTH // 2, 300))
+        stars_rect = stars_text.get_rect(center=(SCREEN_WIDTH // 2, 340))
         surface.blit(stars_text, stars_rect)
         
         today_record = self.challenge_manager.get_today_record()
@@ -161,7 +161,7 @@ class DailyChallengeUI:
             completed_text = get_font().render(f"今日已完成! 最高分: {today_record.score} 星星: {today_record.stars}", True, GREEN)
         else:
             completed_text = get_font().render("今日挑战未完成", True, (200, 200, 200))
-        completed_rect = completed_text.get_rect(center=(SCREEN_WIDTH // 2, 330))
+        completed_rect = completed_text.get_rect(center=(SCREEN_WIDTH // 2, 385))
         surface.blit(completed_text, completed_rect)
         
         self.play_challenge_button.draw(surface, mouse_pos)
@@ -356,22 +356,22 @@ class DailyChallengeUI:
         surface.blit(overlay, (0, 0))
         
         title_text = get_large_font().render("奖励系统", True, YELLOW)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
         surface.blit(title_text, title_rect)
         
         stars_text = get_medium_font().render(f"累计星星: {self.challenge_manager.total_stars} ⭐", True, (255, 215, 0))
-        stars_rect = stars_text.get_rect(center=(SCREEN_WIDTH // 2, 110))
+        stars_rect = stars_text.get_rect(center=(SCREEN_WIDTH // 2, 130))
         surface.blit(stars_text, stars_rect)
         
         rewards = self.challenge_manager.get_available_rewards()
         
-        start_y = 160
+        start_y = 190
         
         for i, reward in enumerate(rewards):
-            x = SCREEN_WIDTH // 2 - 300
-            y = start_y + i * 110
-            width = 600
-            height = 100
+            x = SCREEN_WIDTH // 2 - 320
+            y = start_y + i * 130
+            width = 640
+            height = 120
             
             if reward["unlocked"]:
                 bg_color = (0, 150, 0, 80)
@@ -386,40 +386,40 @@ class DailyChallengeUI:
             surface.blit(bg_surface, (x, y))
             
             icon_text = get_large_font().render(reward["icon"], True, WHITE)
-            icon_rect = icon_text.get_rect(midleft=(x + 30, y + height // 2))
+            icon_rect = icon_text.get_rect(midleft=(x + 40, y + height // 2))
             surface.blit(icon_text, icon_rect)
             
             name_text = get_medium_font().render(reward["name"], True, WHITE)
-            name_rect = name_text.get_rect(topleft=(x + 100, y + 15))
+            name_rect = name_text.get_rect(topleft=(x + 120, y + 20))
             surface.blit(name_text, name_rect)
             
             desc_text = get_small_font().render(reward["description"], True, (200, 200, 200))
-            desc_rect = desc_text.get_rect(topleft=(x + 100, y + 50))
+            desc_rect = desc_text.get_rect(topleft=(x + 120, y + 70))
             surface.blit(desc_text, desc_rect)
             
             requirement_text = get_font().render(
                 f"需要: {reward['required_stars']} 星",
                 True, (255, 215, 0) if reward["unlocked"] else GRAY
             )
-            requirement_rect = requirement_text.get_rect(topright=(x + width - 30, y + 15))
+            requirement_rect = requirement_text.get_rect(topright=(x + width - 40, y + 20))
             surface.blit(requirement_text, requirement_rect)
             
             if reward["unlocked"]:
                 status_text = get_font().render("已解锁 ✓", True, GREEN)
-                status_rect = status_text.get_rect(topright=(x + width - 30, y + 50))
+                status_rect = status_text.get_rect(topright=(x + width - 40, y + 70))
                 surface.blit(status_text, status_rect)
             else:
                 progress_text = get_font().render(
                     f"进度: {int(reward['progress'] * 100)}%",
                     True, ORANGE
                 )
-                progress_rect = progress_text.get_rect(topright=(x + width - 30, y + 50))
+                progress_rect = progress_text.get_rect(topright=(x + width - 40, y + 65))
                 surface.blit(progress_text, progress_rect)
                 
-                progress_width = 150
-                progress_height = 12
-                progress_x = x + width - 30 - progress_width
-                progress_y = y + 80
+                progress_width = 160
+                progress_height = 14
+                progress_x = x + width - 40 - progress_width
+                progress_y = y + 95
                 
                 pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, progress_height))
                 
