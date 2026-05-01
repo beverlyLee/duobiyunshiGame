@@ -254,7 +254,7 @@ class DailyChallengeUI:
             f"平均星星: {self.challenge_manager.get_average_stars():.1f}",
             True, WHITE
         )
-        stats_rect = stats_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
+        stats_rect = stats_text.get_rect(center=(SCREEN_WIDTH // 2, 130))
         surface.blit(stats_text, stats_rect)
         
         records = self.challenge_manager.get_history_records(limit=100)
@@ -264,7 +264,7 @@ class DailyChallengeUI:
             no_record_rect = no_record_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
             surface.blit(no_record_text, no_record_rect)
         else:
-            header_y = 140
+            header_y = 180
             header_bg = pygame.Surface((SCREEN_WIDTH - 100, 40), pygame.SRCALPHA)
             header_bg.fill((100, 100, 100, 100))
             surface.blit(header_bg, (50, header_y))

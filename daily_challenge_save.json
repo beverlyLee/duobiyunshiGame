@@ -5,12 +5,12 @@
   "today_first_completed": false,
   "best_scores": {},
   "current_challenge": {
-    "date_str": "2026-05-01",
-    "seed": 364688947,
+    "date_str": "2026-05-02",
+    "seed": 364688964,
     "modifiers": [
-      "fragile_ship",
-      "mirror_mode",
-      "gravity_reversal"
+      "accelerated_time",
+      "infinite_bullets",
+      "mirror_mode"
     ]
   }
 }

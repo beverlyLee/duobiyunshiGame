@@ -396,12 +396,12 @@ class Game:
             self.score += final_score
             
             if multiplier > 1.0:
-                self.text_manager.add_score_text(80, 30, final_score)
+                self.text_manager.add_score_text(SCREEN_WIDTH // 2, 100, final_score)
             else:
-                self.text_manager.add_score_text(80, 30, base_score)
+                self.text_manager.add_score_text(SCREEN_WIDTH // 2, 100, base_score)
         else:
             self.score += base_score
-            self.text_manager.add_score_text(80, 30, base_score)
+            self.text_manager.add_score_text(SCREEN_WIDTH // 2, 100, base_score)
     
     def reset_combo(self):
         if self.combo_system:
