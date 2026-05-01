@@ -1,0 +1,16 @@
+{
+  "total_stars": 0,
+  "challenge_records": {},
+  "unlocked_rewards": [],
+  "today_first_completed": false,
+  "best_scores": {},
+  "current_challenge": {
+    "date_str": "2026-05-01",
+    "seed": 364688947,
+    "modifiers": [
+      "fragile_ship",
+      "mirror_mode",
+      "gravity_reversal"
+    ]
+  }
+}

@@ -18,6 +18,11 @@ from game.config import (
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
 from game.core.skill_tree import get_skill_tree_manager, SkillTreeManager
+from game.core.daily_challenge import (
+    DailyChallenge, DailyChallengeManager, get_daily_challenge_manager,
+    ModifierType, MODIFIER_CONFIG, RewardType, REWARD_CONFIG
+)
+from game.core.modifier_applier import ModifierApplier, get_modifier_applier
 from game.entities.particle import ParticleSystem
 from game.entities.ship import Ship
 from game.entities.meteor import Meteor
@@ -153,6 +158,23 @@ class Game:
         
         self.audio_manager = get_audio_manager()
         self.audio_manager.load_all_sounds()
+        
+        self.challenge_manager = get_daily_challenge_manager()
+        self.modifier_applier = get_modifier_applier()
+        self.modifier_applier.initialize(self.challenge_manager)
+        
+        self.is_challenge_mode = False
+        self.challenge_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        
+        self.challenge_mode_button = Button(
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20,
+            200, 50, "每日挑战", YELLOW, (200, 180, 0)
+        )
+        
+        self.challenge_pause_continue_button = Button(
+            SCREEN_WIDTH // 2 - 100, SCREEN_HEIGHT // 2 + 20,
+            200, 50, "继续挑战", YELLOW, (200, 180, 0)
+        )
     
     def _load_high_score(self):
         try:
@@ -172,6 +194,9 @@ class Game:
         if self.score > self.high_score:
             self.high_score = self.score
             self._save_high_score()
+        
+        if self.is_challenge_mode:
+            self._end_challenge_mode()
         
         self.ship = Ship()
         self.ship.speed = 7 + self.skill_tree.get_total_move_speed()
@@ -256,6 +281,113 @@ class Game:
             self.difficulty_system = DifficultySystem()
         
         self.audio_manager.play_music("background")
+    
+    def start_challenge_mode(self):
+        self.is_challenge_mode = True
+        self.modifier_applier.start_challenge_mode()
+        
+        self.ship = Ship()
+        self.ship.speed = 7 + self.skill_tree.get_total_move_speed()
+        
+        self.meteors = []
+        self.powerups = []
+        self.bullets = []
+        self.particle_system = ParticleSystem()
+        self.text_manager = FloatingTextManager()
+        self.score = 0
+        
+        if self.modifier_applier.is_fragile_ship():
+            self.max_lives = 1
+            self.lives = 1
+        else:
+            base_lives = 3
+            skill_lives = self.skill_tree.get_total_max_life()
+            self.max_lives = base_lives + skill_lives
+            self.lives = self.max_lives
+        
+        self.game_over = False
+        self.paused = False
+        self.meteor_timer = 0
+        self.meteor_interval = 60
+        self.game_started = True
+        self.collision_happened = False
+        
+        self.special_meteor_counters = {
+            METEOR_TRACKER: 0,
+            METEOR_ARMORED: 0,
+            METEOR_EXPLOSIVE: 0,
+        }
+        self.current_level = 1
+        self.last_checked_level = 1
+        
+        self.collision_delay = 0
+        self.flash_timer = 0
+        self.show_flash = False
+        self.collision_particle_timer = 0
+        
+        self.warning_flash = False
+        self.warning_flash_timer = 0
+        
+        self.powerup_timer = 0
+        
+        self.has_shield = False
+        self.shield_duration = 0
+        self.shield_flash_timer = 0
+        self.show_shield_outline = True
+        
+        if self.modifier_applier.is_infinite_bullets():
+            self.has_bullet = True
+            self.bullet_duration = float('inf')
+        else:
+            self.has_bullet = False
+            self.bullet_duration = 0
+        
+        self.bullet_cooldown = 0
+        self.bullet_cooldown_frames = max(1, self.base_bullet_cooldown_frames - self.skill_tree.get_fire_rate_reduction())
+        
+        self.meteor_slow = False
+        self.meteor_slow_duration = 0
+        
+        self.has_energy_shield = False
+        self.has_ultimate_mode = False
+        self.ultimate_duration = 0
+        
+        self.ultimate_transition_in = False
+        self.ultimate_transition_out = False
+        self.ultimate_transition_timer = 0
+        self.ultimate_transition_max = 45
+        
+        self.visual_effect_phase = 0
+        
+        self.move_sound_cooldown = 0
+        
+        self.shake_offset_x = 0
+        self.shake_offset_y = 0
+        self.shake_angle = 0
+        
+        if self.screen_shake:
+            self.screen_shake.stop_shake()
+        
+        if self.combo_system:
+            self.combo_system = ComboSystem()
+            combo_extra = self.skill_tree.get_combo_duration_extra()
+            if combo_extra > 0:
+                self.combo_system.combo_timeout = FPS * 2 + combo_extra
+        
+        if self.difficulty_system:
+            self.difficulty_system = DifficultySystem()
+        
+        self.audio_manager.play_music("background")
+    
+    def _end_challenge_mode(self):
+        if self.score > 0:
+            record = self.challenge_manager.record_challenge_completion(self.score)
+        
+        self.is_challenge_mode = False
+        self.modifier_applier.end_challenge_mode()
+    
+    def get_challenge_stars(self) -> int:
+        return self.challenge_manager.calculate_stars(self.score)
     
     def add_score_with_combo(self, base_score, source=""):
         if self.combo_system:
@@ -817,7 +949,7 @@ class Game:
             self.visual_effect_phase += 1
         
         if self.has_bullet:
-            if not self.has_ultimate_mode:
+            if not self.has_ultimate_mode and not (self.is_challenge_mode and self.modifier_applier.is_infinite_bullets()):
                 self.bullet_duration -= 1
                 if self.bullet_duration <= 0:
                     self.has_bullet = False
@@ -890,16 +1022,43 @@ class Game:
             if self.difficulty_system:
                 speed_multiplier = self.difficulty_system.get_meteor_speed_multiplier()
             
-            if self.has_ultimate_mode:
-                meteor.y += meteor.speed * SYNERGY_CONFIG["ultimate"]["meteor_speed_multiplier"] * speed_multiplier
-                meteor.rect.y = meteor.y
-            elif self.meteor_slow and meteor.speed > 2:
-                meteor.y += meteor.speed * 0.5 * speed_multiplier
-                meteor.rect.y = meteor.y
+            if self.is_challenge_mode:
+                time_multiplier = self.modifier_applier.get_time_multiplier()
+                speed_multiplier *= time_multiplier
+                
+                if self.modifier_applier.is_gravity_reversed():
+                    if self.has_ultimate_mode:
+                        meteor.y -= meteor.speed * SYNERGY_CONFIG["ultimate"]["meteor_speed_multiplier"] * speed_multiplier
+                        meteor.rect.y = meteor.y
+                    elif self.meteor_slow and meteor.speed > 2:
+                        meteor.y -= meteor.speed * 0.5 * speed_multiplier
+                        meteor.rect.y = meteor.y
+                    else:
+                        meteor.y -= meteor.speed * speed_multiplier
+                        meteor.rect.y = meteor.y
+                        meteor.update()
+                else:
+                    if self.has_ultimate_mode:
+                        meteor.y += meteor.speed * SYNERGY_CONFIG["ultimate"]["meteor_speed_multiplier"] * speed_multiplier
+                        meteor.rect.y = meteor.y
+                    elif self.meteor_slow and meteor.speed > 2:
+                        meteor.y += meteor.speed * 0.5 * speed_multiplier
+                        meteor.rect.y = meteor.y
+                    else:
+                        meteor.y += meteor.speed * speed_multiplier
+                        meteor.rect.y = meteor.y
+                        meteor.update()
             else:
-                meteor.y += meteor.speed * speed_multiplier
-                meteor.rect.y = meteor.y
-                meteor.update()
+                if self.has_ultimate_mode:
+                    meteor.y += meteor.speed * SYNERGY_CONFIG["ultimate"]["meteor_speed_multiplier"] * speed_multiplier
+                    meteor.rect.y = meteor.y
+                elif self.meteor_slow and meteor.speed > 2:
+                    meteor.y += meteor.speed * 0.5 * speed_multiplier
+                    meteor.rect.y = meteor.y
+                else:
+                    meteor.y += meteor.speed * speed_multiplier
+                    meteor.rect.y = meteor.y
+                    meteor.update()
             
             if meteor.is_explosive() and meteor.update_explosive():
                 self.create_explosion_chain(meteor)
@@ -908,16 +1067,28 @@ class Game:
                 self.audio_manager.play_sound(SoundType.EXPLOSION)
                 continue
             
-            if meteor.y > SCREEN_HEIGHT:
-                meteor_center = meteor.get_center()
-                self.particle_system.create_explosion(meteor_center[0], SCREEN_HEIGHT - 20, 12)
-                self.meteors.remove(meteor)
-                
-                score_value = meteor.config.get("score", 10)
-                dodge_multiplier = self.skill_tree.get_dodge_reward_multiplier()
-                final_score = int(score_value * dodge_multiplier)
-                self.add_score_with_combo(final_score, "dodge")
-                self.audio_manager.play_sound(SoundType.DODGE)
+            if self.is_challenge_mode and self.modifier_applier.is_gravity_reversed():
+                if meteor.y + meteor.height < 0:
+                    meteor_center = meteor.get_center()
+                    self.particle_system.create_explosion(meteor_center[0], 20, 12)
+                    self.meteors.remove(meteor)
+                    
+                    score_value = meteor.config.get("score", 10)
+                    dodge_multiplier = self.skill_tree.get_dodge_reward_multiplier()
+                    final_score = int(score_value * dodge_multiplier)
+                    self.add_score_with_combo(final_score, "dodge")
+                    self.audio_manager.play_sound(SoundType.DODGE)
+            else:
+                if meteor.y > SCREEN_HEIGHT:
+                    meteor_center = meteor.get_center()
+                    self.particle_system.create_explosion(meteor_center[0], SCREEN_HEIGHT - 20, 12)
+                    self.meteors.remove(meteor)
+                    
+                    score_value = meteor.config.get("score", 10)
+                    dodge_multiplier = self.skill_tree.get_dodge_reward_multiplier()
+                    final_score = int(score_value * dodge_multiplier)
+                    self.add_score_with_combo(final_score, "dodge")
+                    self.audio_manager.play_sound(SoundType.DODGE)
         
         for powerup in self.powerups[:]:
             if not powerup.update():
@@ -1749,50 +1920,125 @@ class Game:
         surface.blit(transition_surface, (0, 0))
     
     def draw(self, surface, mouse_pos):
-        if self.shake_offset_x != 0 or self.shake_offset_y != 0:
-            draw_surface = self.render_surface
-            draw_surface.fill(BLACK)
-        else:
-            draw_surface = surface
+        needs_mirror = self.is_challenge_mode and self.modifier_applier.is_mirror_mode()
+        needs_shake = self.shake_offset_x != 0 or self.shake_offset_y != 0 or self.shake_angle != 0
         
         if self.starfield:
-            self.starfield.draw(draw_surface)
+            self.starfield.draw(surface)
         
         if not self.game_started:
-            self.draw_start_screen(draw_surface, mouse_pos)
-        elif self.game_over:
-            self.draw_game_over_screen(draw_surface, mouse_pos)
-        else:
-            self.particle_system.draw(draw_surface)
+            self.draw_start_screen(surface, mouse_pos)
+            return
+        
+        if self.game_over:
+            self.draw_game_over_screen(surface, mouse_pos)
+            return
+        
+        if needs_mirror:
+            game_surface = self.render_surface
+            game_surface.fill(BLACK)
+            
+            self.particle_system.draw(game_surface)
             
             if not (self.collision_happened and self.collision_delay > 0):
                 for powerup in self.powerups:
-                    powerup.draw(draw_surface)
+                    powerup.draw(game_surface)
                 
                 for meteor in self.meteors:
-                    meteor.draw(draw_surface)
+                    meteor.draw(game_surface)
                 
                 for bullet in self.bullets:
-                    bullet.draw(draw_surface)
+                    bullet.draw(game_surface)
                 
                 if self.has_shield:
-                    self.draw_ship_with_shield(draw_surface)
+                    self.draw_ship_with_shield(game_surface)
                 else:
-                    self.ship.draw(draw_surface)
+                    self.ship.draw(game_surface)
             
-            self.draw_game_ui(draw_surface)
-            self.draw_warning_effects(draw_surface)
-            self.draw_ultimate_golden_halo(draw_surface)
-            self.draw_ultimate_transition_effects(draw_surface)
-            self.draw_difficulty_level_up(draw_surface)
+            if needs_shake:
+                if abs(self.shake_angle) > 0.01:
+                    rotated_surface = pygame.transform.rotate(game_surface, self.shake_angle)
+                    rotated_rect = rotated_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                    game_surface.fill(BLACK)
+                    game_surface.blit(rotated_surface, (rotated_rect.x + self.shake_offset_x, rotated_rect.y + self.shake_offset_y))
+                else:
+                    temp_surface = self.challenge_surface
+                    temp_surface.fill(BLACK)
+                    temp_surface.blit(game_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
+                    game_surface.blit(temp_surface, (0, 0))
+            
+            mirrored_surface = pygame.transform.flip(game_surface, True, False)
+            surface.blit(mirrored_surface, (0, 0))
+            
+            self.draw_game_ui(surface)
+            self.draw_warning_effects(surface)
+            self.draw_ultimate_golden_halo(surface)
+            self.draw_ultimate_transition_effects(surface)
+            self.draw_difficulty_level_up(surface)
             
             if self.paused:
-                self.draw_pause_screen(draw_surface, mouse_pos)
+                self.draw_pause_screen(surface, mouse_pos)
         
-        if (self.shake_offset_x != 0 or self.shake_offset_y != 0 or self.shake_angle != 0) and draw_surface is not surface:
+        elif needs_shake:
+            game_surface = self.render_surface
+            game_surface.fill(BLACK)
+            
+            self.particle_system.draw(game_surface)
+            
+            if not (self.collision_happened and self.collision_delay > 0):
+                for powerup in self.powerups:
+                    powerup.draw(game_surface)
+                
+                for meteor in self.meteors:
+                    meteor.draw(game_surface)
+                
+                for bullet in self.bullets:
+                    bullet.draw(game_surface)
+                
+                if self.has_shield:
+                    self.draw_ship_with_shield(game_surface)
+                else:
+                    self.ship.draw(game_surface)
+            
+            self.draw_game_ui(game_surface)
+            self.draw_warning_effects(game_surface)
+            self.draw_ultimate_golden_halo(game_surface)
+            self.draw_ultimate_transition_effects(game_surface)
+            self.draw_difficulty_level_up(game_surface)
+            
+            if self.paused:
+                self.draw_pause_screen(game_surface, mouse_pos)
+            
             if abs(self.shake_angle) > 0.01:
-                rotated_surface = pygame.transform.rotate(draw_surface, self.shake_angle)
+                rotated_surface = pygame.transform.rotate(game_surface, self.shake_angle)
                 rotated_rect = rotated_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
                 surface.blit(rotated_surface, (rotated_rect.x + self.shake_offset_x, rotated_rect.y + self.shake_offset_y))
             else:
-                surface.blit(draw_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
+                surface.blit(game_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
+        
+        else:
+            self.particle_system.draw(surface)
+            
+            if not (self.collision_happened and self.collision_delay > 0):
+                for powerup in self.powerups:
+                    powerup.draw(surface)
+                
+                for meteor in self.meteors:
+                    meteor.draw(surface)
+                
+                for bullet in self.bullets:
+                    bullet.draw(surface)
+                
+                if self.has_shield:
+                    self.draw_ship_with_shield(surface)
+                else:
+                    self.ship.draw(surface)
+            
+            self.draw_game_ui(surface)
+            self.draw_warning_effects(surface)
+            self.draw_ultimate_golden_halo(surface)
+            self.draw_ultimate_transition_effects(surface)
+            self.draw_difficulty_level_up(surface)
+            
+            if self.paused:
+                self.draw_pause_screen(surface, mouse_pos)
