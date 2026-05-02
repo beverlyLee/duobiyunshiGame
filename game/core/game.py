@@ -198,6 +198,9 @@ class Game:
         if self.is_challenge_mode:
             self._end_challenge_mode()
         
+        self.render_surface.fill(BLACK)
+        self.challenge_surface.fill(BLACK)
+        
         self.ship = Ship()
         self.ship.speed = 7 + self.skill_tree.get_total_move_speed()
         
@@ -285,6 +288,9 @@ class Game:
     def start_challenge_mode(self):
         self.is_challenge_mode = True
         self.modifier_applier.start_challenge_mode()
+        
+        self.render_surface.fill(BLACK)
+        self.challenge_surface.fill(BLACK)
         
         self.ship = Ship()
         self.ship.speed = 7 + self.skill_tree.get_total_move_speed()
@@ -1271,8 +1277,12 @@ class Game:
             icon_rect = icon_text.get_rect(midleft=(status_x + 15, current_y + status_height // 2))
             surface.blit(icon_text, icon_rect)
             
-            seconds_remaining = max(0, (powerup["duration"] + FPS - 1) // FPS)
-            time_text = get_small_font().render(f"{seconds_remaining}s", True, WHITE)
+            is_infinite = powerup["duration"] == float('inf')
+            if is_infinite:
+                time_text = get_small_font().render("∞", True, WHITE)
+            else:
+                seconds_remaining = max(0, (powerup["duration"] + FPS - 1) // FPS)
+                time_text = get_small_font().render(f"{seconds_remaining}s", True, WHITE)
             time_rect = time_text.get_rect(midright=(status_x + status_width - 10, current_y + status_height // 2))
             surface.blit(time_text, time_rect)
             
@@ -1284,7 +1294,10 @@ class Game:
                           POWERUP_CONFIG[POWERUP_BULLET]["duration"] if powerup["type"] == "bullet" else \
                           POWERUP_CONFIG[POWERUP_SLOW]["duration"]
             
-            progress = powerup["duration"] / max_duration
+            if is_infinite:
+                progress = 1.0
+            else:
+                progress = powerup["duration"] / max_duration
             current_progress_width = int(progress_width * progress)
             
             pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, 4))
