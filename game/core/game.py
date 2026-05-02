@@ -1203,12 +1203,21 @@ class Game:
         self.game_over_restart_button.draw(surface, mouse_pos)
         self.game_over_quit_button.draw(surface, mouse_pos)
     
+    def _draw_text_with_shadow(self, surface, text, font, pos, color, shadow_color=(0, 0, 0), shadow_offset=2):
+        shadow_text = font.render(text, True, shadow_color)
+        shadow_rect = shadow_text.get_rect(center=pos)
+        shadow_rect.x += shadow_offset
+        shadow_rect.y += shadow_offset
+        surface.blit(shadow_text, shadow_rect)
+        
+        main_text = font.render(text, True, color)
+        main_rect = main_text.get_rect(center=pos)
+        surface.blit(main_text, main_rect)
+    
     def draw_powerup_status(self, surface):
-        status_x = 10
-        status_y = 90
-        status_width = 200
-        status_height = 35
-        status_spacing = 45
+        status_x = SCREEN_WIDTH - 15
+        status_y = 80
+        status_spacing = 28
         
         active_powerups = []
         synergy_active = False
@@ -1265,80 +1274,46 @@ class Game:
                     "icon": "⏱️"
                 })
         
+        small_font = get_small_font()
+        
         for i, powerup in enumerate(active_powerups):
             current_y = status_y + i * status_spacing
             
-            bg_surface = pygame.Surface((status_width, status_height), pygame.SRCALPHA)
-            bg_surface.fill((*powerup["color"], 80))
-            pygame.draw.rect(bg_surface, (*powerup["color"], 180), (0, 0, status_width, status_height), 2)
-            surface.blit(bg_surface, (status_x, current_y))
-            
-            icon_text = get_small_font().render(powerup["icon"], True, WHITE)
-            icon_rect = icon_text.get_rect(midleft=(status_x + 15, current_y + status_height // 2))
+            icon_text = small_font.render(powerup["icon"], True, powerup["color"])
+            icon_rect = icon_text.get_rect(midright=(status_x - 35, current_y))
             surface.blit(icon_text, icon_rect)
             
             is_infinite = powerup["duration"] == float('inf')
             if is_infinite:
-                time_text = get_small_font().render("∞", True, WHITE)
+                time_str = "∞"
             else:
                 seconds_remaining = max(0, (powerup["duration"] + FPS - 1) // FPS)
-                time_text = get_small_font().render(f"{seconds_remaining}s", True, WHITE)
-            time_rect = time_text.get_rect(midright=(status_x + status_width - 10, current_y + status_height // 2))
-            surface.blit(time_text, time_rect)
+                time_str = f"{seconds_remaining}s"
             
-            progress_width = status_width - 60
-            progress_x = status_x + 40
-            progress_y = current_y + status_height - 8
-            
-            max_duration = POWERUP_CONFIG[POWERUP_SHIELD]["duration"] if powerup["type"] == "shield" else \
-                          POWERUP_CONFIG[POWERUP_BULLET]["duration"] if powerup["type"] == "bullet" else \
-                          POWERUP_CONFIG[POWERUP_SLOW]["duration"]
-            
-            if is_infinite:
-                progress = 1.0
-            else:
-                progress = powerup["duration"] / max_duration
-            current_progress_width = int(progress_width * progress)
-            
-            pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, 4))
-            if current_progress_width > 0:
-                pygame.draw.rect(surface, powerup["color"], (progress_x, progress_y, current_progress_width, 4))
+            self._draw_text_with_shadow(
+                surface, time_str, small_font,
+                (status_x, current_y), powerup["color"]
+            )
         
         if synergy_active:
-            synergy_y = status_y + len(active_powerups) * status_spacing + 10
-            synergy_width = status_width
-            synergy_height = status_height
+            synergy_y = status_y + len(active_powerups) * status_spacing + 12
             
-            bg_surface = pygame.Surface((synergy_width, synergy_height), pygame.SRCALPHA)
-            bg_surface.fill((*synergy_color, 120))
-            pygame.draw.rect(bg_surface, (*synergy_color, 220), (0, 0, synergy_width, synergy_height), 3)
-            surface.blit(bg_surface, (status_x, synergy_y))
-            
-            icon_text = get_small_font().render(synergy_icon, True, WHITE)
-            icon_rect = icon_text.get_rect(midleft=(status_x + 15, synergy_y + synergy_height // 2))
+            icon_text = small_font.render(synergy_icon, True, synergy_color)
+            icon_rect = icon_text.get_rect(midright=(status_x - 35, synergy_y))
             surface.blit(icon_text, icon_rect)
-            
-            name_text = get_small_font().render(synergy_name, True, WHITE)
-            name_rect = name_text.get_rect(midleft=(status_x + 45, synergy_y + synergy_height // 2))
-            surface.blit(name_text, name_rect)
             
             if self.has_ultimate_mode:
                 seconds_remaining = max(0, (self.ultimate_duration + FPS - 1) // FPS)
-                time_text = get_small_font().render(f"{seconds_remaining}s", True, WHITE)
-                time_rect = time_text.get_rect(midright=(status_x + synergy_width - 10, synergy_y + synergy_height // 2))
-                surface.blit(time_text, time_rect)
-                
-                progress_width = synergy_width - 60
-                progress_x = status_x + 40
-                progress_y = synergy_y + synergy_height - 8
-                
-                max_duration = SYNERGY_CONFIG["ultimate"]["duration"]
-                progress = self.ultimate_duration / max_duration
-                current_progress_width = int(progress_width * progress)
-                
-                pygame.draw.rect(surface, (50, 50, 50), (progress_x, progress_y, progress_width, 4))
-                if current_progress_width > 0:
-                    pygame.draw.rect(surface, synergy_color, (progress_x, progress_y, current_progress_width, 4))
+                time_str = f"{seconds_remaining}s"
+                self._draw_text_with_shadow(
+                    surface, time_str, small_font,
+                    (status_x, synergy_y), synergy_color
+                )
+            else:
+                self._draw_text_with_shadow(
+                    surface, synergy_name, small_font,
+                    (status_x - 10, synergy_y), synergy_color
+                )
     
     def draw_ship_with_shield(self, surface):
         self.ship.draw(surface)
