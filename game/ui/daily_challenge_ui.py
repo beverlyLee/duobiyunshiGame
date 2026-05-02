@@ -136,9 +136,7 @@ class DailyChallengeUI:
             self._draw_history(surface, mouse_pos)
     
     def _draw_main_screen(self, surface: pygame.Surface, mouse_pos: tuple):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))
-        surface.blit(overlay, (0, 0))
+        surface.fill(BLACK)
         
         title_text = get_large_font().render("每日挑战", True, YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
@@ -193,9 +191,7 @@ class DailyChallengeUI:
             surface.blit(name_text, name_rect)
     
     def _draw_challenge_info(self, surface: pygame.Surface, mouse_pos: tuple):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 220))
-        surface.blit(overlay, (0, 0))
+        surface.fill(BLACK)
         
         title_text = get_large_font().render("挑战详情", True, YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 80))
@@ -240,9 +236,7 @@ class DailyChallengeUI:
         self.back_button.draw(surface, mouse_pos)
     
     def _draw_leaderboard(self, surface: pygame.Surface, mouse_pos: tuple):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 220))
-        surface.blit(overlay, (0, 0))
+        surface.fill(BLACK)
         
         title_text = get_large_font().render("排行榜", True, YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 50))
@@ -351,9 +345,7 @@ class DailyChallengeUI:
         self.back_button.draw(surface, mouse_pos)
     
     def _draw_rewards(self, surface: pygame.Surface, mouse_pos: tuple):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 220))
-        surface.blit(overlay, (0, 0))
+        surface.fill(BLACK)
         
         title_text = get_large_font().render("奖励系统", True, YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
@@ -430,9 +422,7 @@ class DailyChallengeUI:
         self.back_button.draw(surface, mouse_pos)
     
     def _draw_history(self, surface: pygame.Surface, mouse_pos: tuple):
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 220))
-        surface.blit(overlay, (0, 0))
+        surface.fill(BLACK)
         
         title_text = get_large_font().render("历史记录", True, YELLOW)
         title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, 50))

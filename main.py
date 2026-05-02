@@ -93,6 +93,8 @@ def main():
                     if game.game_started and not game.paused and not game.game_over:
                         game.shoot_bullet()
         
+        screen.fill(BLACK)
+        
         if showing_skill_tree:
             skill_tree_ui.update()
             

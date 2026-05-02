@@ -105,6 +105,7 @@ class ColorBoost:
                 r = color.r
                 g = color.g
                 b = color.b
+                a = getattr(color, 'a', 255)
                 
                 gray = 0.2989 * r + 0.5870 * g + 0.1140 * b
                 
@@ -116,7 +117,7 @@ class ColorBoost:
                 g = max(0, min(255, g))
                 b = max(0, min(255, b))
                 
-                pixels[x, y] = temp_surface.map_rgb((r, g, b))
+                pixels[x, y] = temp_surface.map_rgb((r, g, b, a))
         
         del pixels
         return temp_surface
@@ -149,9 +150,9 @@ class DangerFlash:
                 dist = math.sqrt((x - center_x) ** 2 + (y - center_y) ** 2)
                 dist_ratio = dist / max_dist
                 
-                edge_intensity = 1.0 - dist_ratio
+                edge_intensity = dist_ratio
                 if edge_intensity > 0.5:
-                    alpha = int(self.red_tint_alpha * edge_intensity)
+                    alpha = int(self.red_tint_alpha * (edge_intensity - 0.5) * 2)
                     temp_surface = pygame.Surface((10, 10), pygame.SRCALPHA)
                     pygame.draw.circle(
                         temp_surface,

@@ -1,5 +1,4 @@
 import pygame
-import pygame.surfarray as surfarray
 import math
 from game.config import FPS
 from game.core.utils import get_font, get_medium_font, get_large_font
@@ -11,11 +10,12 @@ def apply_alpha_to_surface(surface, alpha_value):
     if alpha_value <= 0:
         return None
     
-    alpha_ratio = alpha_value / 255.0
-    alpha_array = surfarray.pixels_alpha(surface)
-    alpha_array[:] = (alpha_array * alpha_ratio).astype(alpha_array.dtype)
-    del alpha_array
-    return surface
+    width = surface.get_width()
+    height = surface.get_height()
+    temp_surf = pygame.Surface((width, height), pygame.SRCALPHA)
+    temp_surf.blit(surface, (0, 0))
+    temp_surf.set_alpha(alpha_value)
+    return temp_surf
 
 
 class ComboSystem:

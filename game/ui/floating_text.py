@@ -1,8 +1,7 @@
 import pygame
-import pygame.surfarray as surfarray
 from game.config import (
     SCREEN_WIDTH, SCREEN_HEIGHT,
-    YELLOW, GREEN
+    YELLOW, GREEN, BLACK
 )
 from game.core.utils import get_chinese_font
 
@@ -18,6 +17,9 @@ class FloatingText:
         self.float_speed = float_speed
         self.alpha = 255
         self.font = get_chinese_font(font_size)
+        self._original_surf = None
+        self._surf_width = 0
+        self._surf_height = 0
 
     def update(self):
         self.y -= self.float_speed
@@ -34,28 +36,38 @@ class FloatingText:
         if self.alpha <= 0 or self.duration <= 0:
             return
 
-        text_surf = self.font.render(self.text, True, self.color)
-        text_surf = text_surf.convert_alpha()
+        if self._original_surf is None:
+            self._original_surf = self.font.render(self.text, True, self.color)
+            self._original_surf = self._original_surf.convert_alpha()
+            self._surf_width = self._original_surf.get_width()
+            self._surf_height = self._original_surf.get_height()
 
-        if self.alpha < 255:
-            alpha_ratio = self.alpha / 255.0
-            alpha_array = surfarray.pixels_alpha(text_surf)
-            alpha_array[:] = (alpha_array * alpha_ratio).astype(alpha_array.dtype)
-            del alpha_array
+        text_rect = self._original_surf.get_rect(center=(int(self.x), int(self.y)))
 
-        text_rect = text_surf.get_rect(center=(int(self.x), int(self.y)))
-        surface.blit(text_surf, text_rect)
+        if self.alpha >= 255:
+            surface.blit(self._original_surf, text_rect)
+        else:
+            temp_surf = pygame.Surface((self._surf_width, self._surf_height), pygame.SRCALPHA)
+            temp_surf.blit(self._original_surf, (0, 0))
+            temp_surf.set_alpha(self.alpha)
+            surface.blit(temp_surf, text_rect)
 
 
 class FloatingTextManager:
     def __init__(self):
         self.floating_texts = []
+        self.score_offset_index = 0
+        self.max_offsets = 5
+        self.offset_spacing = 60
 
     def add_text(self, x, y, text, color=YELLOW, duration=60, float_speed=1.5, font_size=28):
         self.floating_texts.append(FloatingText(x, y, text, color, duration, float_speed, font_size))
 
     def add_score_text(self, x, y, score_amount):
-        self.add_text(x, y, f"+{score_amount}", GREEN, duration=90, float_speed=1.2, font_size=32)
+        offset = (self.score_offset_index - self.max_offsets // 2) * self.offset_spacing
+        actual_x = x + offset
+        self.add_text(actual_x, y, f"+{score_amount}", GREEN, duration=90, float_speed=1.2, font_size=32)
+        self.score_offset_index = (self.score_offset_index + 1) % self.max_offsets
 
     def add_center_message(self, text, color=YELLOW, duration=120):
         self.add_text(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2, text, color, duration, float_speed=0, font_size=48)

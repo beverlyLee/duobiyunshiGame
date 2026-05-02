@@ -1608,10 +1608,12 @@ class Game:
                 border_thickness = 15
                 border_color = (255, 0, 0, 150)
                 
-                pygame.draw.rect(surface, border_color[:3], (0, 0, SCREEN_WIDTH, border_thickness))
-                pygame.draw.rect(surface, border_color[:3], (0, SCREEN_HEIGHT - border_thickness, SCREEN_WIDTH, border_thickness))
-                pygame.draw.rect(surface, border_color[:3], (0, 0, border_thickness, SCREEN_HEIGHT))
-                pygame.draw.rect(surface, border_color[:3], (SCREEN_WIDTH - border_thickness, 0, border_thickness, SCREEN_HEIGHT))
+                warning_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+                pygame.draw.rect(warning_overlay, border_color, (0, 0, SCREEN_WIDTH, border_thickness))
+                pygame.draw.rect(warning_overlay, border_color, (0, SCREEN_HEIGHT - border_thickness, SCREEN_WIDTH, border_thickness))
+                pygame.draw.rect(warning_overlay, border_color, (0, 0, border_thickness, SCREEN_HEIGHT))
+                pygame.draw.rect(warning_overlay, border_color, (SCREEN_WIDTH - border_thickness, 0, border_thickness, SCREEN_HEIGHT))
+                surface.blit(warning_overlay, (0, 0))
         
         if self.has_ultimate_mode:
             seconds_remaining = max(0, (self.ultimate_duration + FPS - 1) // FPS)
