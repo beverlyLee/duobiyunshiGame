@@ -253,3 +253,108 @@ SKILL_NODE_RADIUS = 25
 SKILL_ROW_SPACING = 80
 SKILL_BRANCH_WIDTH = 220
 
+EXPLOSION_ORANGE = (255, 140, 0)
+EXPLOSION_LIGHT_ORANGE = (255, 180, 50)
+EXPLOSION_YELLOW = (255, 255, 0)
+EXPLOSION_GOLD = (255, 215, 0)
+EXPLOSION_RED = (255, 50, 0)
+EXPLOSION_DARK_RED = (200, 0, 0)
+EXPLOSION_BRIGHT_RED = (255, 0, 0)
+
+BULLET_TRAIL_YELLOW = (255, 255, 100)
+BULLET_TRAIL_ORANGE = (255, 200, 50)
+RAINBOW_COLORS = [
+    (255, 0, 0), (255, 127, 0), (255, 255, 0),
+    (0, 255, 0), (0, 0, 255), (75, 0, 130), (148, 0, 211)
+]
+
+METEOR_SMALL_PARTICLE_COUNT = 10
+METEOR_MEDIUM_PARTICLE_COUNT = 20
+METEOR_LARGE_PARTICLE_COUNT = 30
+
+METEOR_PARTICLE_CONFIG = {
+    METEOR_SMALL: {
+        "base_count": 10,
+        "size_multiplier": 0.8
+    },
+    METEOR_MEDIUM: {
+        "base_count": 20,
+        "size_multiplier": 1.0
+    },
+    METEOR_LARGE: {
+        "base_count": 30,
+        "size_multiplier": 1.3
+    },
+    METEOR_SPLIT: {
+        "base_count": 20,
+        "size_multiplier": 1.0
+    },
+    METEOR_TRACKER: {
+        "base_count": 15,
+        "size_multiplier": 0.9
+    },
+    METEOR_ARMORED: {
+        "base_count": 25,
+        "size_multiplier": 1.2
+    },
+    METEOR_EXPLOSIVE: {
+        "base_count": 35,
+        "size_multiplier": 1.5
+    }
+}
+
+HIGH_COMBO_THRESHOLD = 20
+
+POST_PROCESS_CONFIG = {
+    "motion_blur": {
+        "enabled": True,
+        "speed_threshold": 5.0,
+        "intensity": 0.3
+    },
+    "color_boost": {
+        "enabled": True,
+        "saturation_base": 1.0,
+        "saturation_high_combo": 1.5,
+        "combo_threshold": 20
+    },
+    "danger_flash": {
+        "enabled": True,
+        "low_hp_threshold": 1,
+        "flash_interval": 30,
+        "red_tint_alpha": 50
+    },
+    "upgrade_flash": {
+        "enabled": True,
+        "duration": 60,
+        "gold_tint_alpha": 80
+    }
+}
+
+ENVIRONMENT_CONFIG = {
+    "meteors": {
+        "enabled": True,
+        "spawn_chance": 0.005,
+        "min_speed": 8,
+        "max_speed": 15,
+        "min_length": 50,
+        "max_length": 150
+    },
+    "nebula": {
+        "enabled": True,
+        "layer_count": 3,
+        "color_palette": [
+            (100, 50, 150), (50, 100, 150), (150, 100, 50)
+        ],
+        "move_speed": 0.1,
+        "alpha_base": 30
+    },
+    "solar_flare": {
+        "enabled": True,
+        "spawn_chance": 0.001,
+        "duration": 30,
+        "peak_intensity": 200,
+        "fade_in_frames": 5,
+        "fade_out_frames": 25
+    }
+}
+

@@ -13,7 +13,8 @@ from game.config import (
     SPECIAL_METEOR_CONFIG,
     SYNERGY_CONFIG,
     ULTIMATE_GOLD, ULTIMATE_LIGHT_GOLD,
-    ENERGY_SHIELD_PURPLE, ENERGY_SHIELD_LIGHT_PURPLE
+    ENERGY_SHIELD_PURPLE, ENERGY_SHIELD_LIGHT_PURPLE,
+    HIGH_COMBO_THRESHOLD
 )
 from game.core.utils import get_font, get_large_font, get_medium_font, get_small_font
 from game.core.audio_manager import AudioManager, SoundType, get_audio_manager
@@ -35,9 +36,12 @@ from game.ui.floating_text import FloatingTextManager
 try:
     from game.core.screen_shake import ScreenShake, ShakeType
     from game.core.combo_system import ComboSystem, DifficultySystem
+    from game.core.post_processing import PostProcessor
     HAS_ADVANCED_SYSTEMS = True
+    HAS_POST_PROCESSING = True
 except ImportError:
     HAS_ADVANCED_SYSTEMS = False
+    HAS_POST_PROCESSING = False
 
 class Game:
     def __init__(self):
@@ -124,6 +128,14 @@ class Game:
             self.screen_shake = None
             self.combo_system = None
             self.difficulty_system = None
+        
+        if HAS_POST_PROCESSING:
+            self.post_processor = PostProcessor()
+        else:
+            self.post_processor = None
+        
+        self.prev_ship_position = None
+        self.ship_speed = 0
         
         self.render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         self.shake_offset_x = 0
@@ -283,6 +295,12 @@ class Game:
         if self.difficulty_system:
             self.difficulty_system = DifficultySystem()
         
+        if HAS_POST_PROCESSING:
+            self.post_processor = PostProcessor()
+        
+        self.prev_ship_position = None
+        self.ship_speed = 0
+        
         self.audio_manager.play_music("background")
     
     def start_challenge_mode(self):
@@ -382,6 +400,12 @@ class Game:
         
         if self.difficulty_system:
             self.difficulty_system = DifficultySystem()
+        
+        if HAS_POST_PROCESSING:
+            self.post_processor = PostProcessor()
+        
+        self.prev_ship_position = None
+        self.ship_speed = 0
         
         self.audio_manager.play_music("background")
     
@@ -591,9 +615,7 @@ class Game:
                             meteor.freeze(SYNERGY_CONFIG["freeze"]["freeze_duration"])
                             self.audio_manager.play_sound(SoundType.FREEZE)
                     
-                    self.particle_system.create_explosion(
-                        meteor_center[0], meteor_center[1], 8
-                    )
+                    meteor_size = max(meteor.width, meteor.height)
                     
                     if self.screen_shake:
                         self.screen_shake.add_trauma(0.15)
@@ -610,8 +632,10 @@ class Game:
                         if meteor.should_explode_on_destroy():
                             self.create_explosion_chain(meteor)
                         else:
-                            self.particle_system.create_explosion(
-                                meteor_center[0], meteor_center[1], 25
+                            self.particle_system.create_layered_explosion(
+                                meteor_center[0], meteor_center[1],
+                                meteor_type=meteor.type,
+                                meteor_size=meteor_size
                             )
                             
                             if self.screen_shake:
@@ -622,8 +646,10 @@ class Game:
                                 split_score = meteor.get_split_score()
                                 for split_meteor in split_meteors:
                                     split_center = split_meteor.get_center()
-                                    self.particle_system.create_explosion(
-                                        split_center[0], split_center[1], 5
+                                    self.particle_system.create_layered_explosion(
+                                        split_center[0], split_center[1],
+                                        meteor_type=split_meteor.type,
+                                        meteor_size=max(split_meteor.width, split_meteor.height)
                                     )
                                     self.meteors.append(split_meteor)
                                     self.add_score_with_combo(split_score, "split_destroy")
@@ -635,6 +661,9 @@ class Game:
                             self.meteors.remove(meteor)
                         self.audio_manager.play_sound(SoundType.EXPLOSION)
                     else:
+                        self.particle_system.create_explosion(
+                            meteor_center[0], meteor_center[1], 8
+                        )
                         self.audio_manager.play_sound(SoundType.HIT)
                     
                     if bullet.is_penetrating and bullet.can_penetrate():
@@ -873,6 +902,12 @@ class Game:
             if self.difficulty_system.has_just_leveled_up():
                 self.audio_manager.play_sound(SoundType.LEVEL_UP)
                 self.skill_tree.add_skill_points(1)
+                
+                if self.post_processor:
+                    self.post_processor.trigger_upgrade()
+                
+                ship_center = (self.ship.x + self.ship.width // 2, self.ship.y + self.ship.height // 2)
+                self.particle_system.create_upgrade_flash_particles(ship_center[0], ship_center[1])
         
         if not self.game_started or self.paused:
             self.particle_system.update()
@@ -1008,6 +1043,17 @@ class Game:
         for bullet in self.bullets[:]:
             if not bullet.update():
                 self.bullets.remove(bullet)
+                continue
+            
+            combo_count = self.combo_system.get_combo() if self.combo_system else 0
+            is_high_combo = combo_count >= HIGH_COMBO_THRESHOLD
+            
+            trail_x, trail_y = bullet.get_trail_position()
+            self.particle_system.create_bullet_trail(
+                trail_x, trail_y,
+                is_high_combo=is_high_combo,
+                is_penetrating=bullet.is_penetrating
+            )
         
         for meteor in self.meteors[:]:
             if meteor.is_frozen:
@@ -1105,6 +1151,31 @@ class Game:
         self.check_powerup_collisions()
         self.particle_system.update()
         self.text_manager.update()
+        
+        if self.post_processor:
+            ship_center = (self.ship.x + self.ship.width // 2, self.ship.y + self.ship.height // 2)
+            
+            if self.prev_ship_position is not None:
+                dx = ship_center[0] - self.prev_ship_position[0]
+                dy = ship_center[1] - self.prev_ship_position[1]
+                self.ship_speed = math.sqrt(dx * dx + dy * dy)
+            else:
+                self.ship_speed = 0
+            
+            self.prev_ship_position = ship_center
+            
+            combo_count = self.combo_system.get_combo() if self.combo_system else 0
+            self.post_processor.update(
+                ship_position=ship_center,
+                ship_speed=self.ship_speed,
+                combo_count=combo_count,
+                current_lives=self.lives
+            )
+        
+        if self.lives <= 1 and self.post_processor:
+            ship_center = (self.ship.x + self.ship.width // 2, self.ship.y + self.ship.height // 2)
+            if random.random() < 0.1:
+                self.particle_system.create_danger_particles(ship_center[0], ship_center[1])
         
         if self.warning_flash:
             self.warning_flash_timer += 1
@@ -1911,122 +1982,75 @@ class Game:
         needs_mirror = self.is_challenge_mode and self.modifier_applier.is_mirror_mode()
         needs_shake = self.shake_offset_x != 0 or self.shake_offset_y != 0 or self.shake_angle != 0
         
-        if self.starfield:
-            self.starfield.draw(surface)
+        combo_count = self.combo_system.get_combo() if self.combo_system else 0
+        is_high_combo = combo_count >= HIGH_COMBO_THRESHOLD
         
         if not self.game_started:
+            if self.starfield:
+                self.starfield.draw(surface)
             self.draw_start_screen(surface, mouse_pos)
             return
         
         if self.game_over:
+            if self.starfield:
+                self.starfield.draw(surface)
             self.draw_game_over_screen(surface, mouse_pos)
             return
         
-        if needs_mirror:
-            game_surface = self.render_surface
-            game_surface.fill(BLACK)
-            
-            self.particle_system.draw(game_surface)
-            
-            if not (self.collision_happened and self.collision_delay > 0):
-                for powerup in self.powerups:
-                    powerup.draw(game_surface)
-                
-                for meteor in self.meteors:
-                    meteor.draw(game_surface)
-                
-                for bullet in self.bullets:
-                    bullet.draw(game_surface)
-                
-                if self.has_shield:
-                    self.draw_ship_with_shield(game_surface)
-                else:
-                    self.ship.draw(game_surface)
-            
-            if needs_shake:
-                if abs(self.shake_angle) > 0.01:
-                    rotated_surface = pygame.transform.rotate(game_surface, self.shake_angle)
-                    rotated_rect = rotated_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-                    game_surface.fill(BLACK)
-                    game_surface.blit(rotated_surface, (rotated_rect.x + self.shake_offset_x, rotated_rect.y + self.shake_offset_y))
-                else:
-                    temp_surface = self.challenge_surface
-                    temp_surface.fill(BLACK)
-                    temp_surface.blit(game_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
-                    game_surface.blit(temp_surface, (0, 0))
-            
-            mirrored_surface = pygame.transform.flip(game_surface, True, False)
-            surface.blit(mirrored_surface, (0, 0))
-            
-            self.draw_game_ui(surface)
-            self.draw_warning_effects(surface)
-            self.draw_ultimate_golden_halo(surface)
-            self.draw_ultimate_transition_effects(surface)
-            self.draw_difficulty_level_up(surface)
-            
-            if self.paused:
-                self.draw_pause_screen(surface, mouse_pos)
+        game_surface = self.render_surface
+        game_surface.fill(BLACK)
         
-        elif needs_shake:
-            game_surface = self.render_surface
-            game_surface.fill(BLACK)
+        if self.starfield:
+            self.starfield.draw(game_surface)
+        
+        self.particle_system.draw(game_surface)
+        
+        if not (self.collision_happened and self.collision_delay > 0):
+            for powerup in self.powerups:
+                powerup.draw(game_surface)
             
-            self.particle_system.draw(game_surface)
+            for meteor in self.meteors:
+                meteor.draw(game_surface)
             
-            if not (self.collision_happened and self.collision_delay > 0):
-                for powerup in self.powerups:
-                    powerup.draw(game_surface)
-                
-                for meteor in self.meteors:
-                    meteor.draw(game_surface)
-                
-                for bullet in self.bullets:
-                    bullet.draw(game_surface)
-                
-                if self.has_shield:
-                    self.draw_ship_with_shield(game_surface)
-                else:
-                    self.ship.draw(game_surface)
+            for bullet in self.bullets:
+                bullet.draw_with_combo_effect(game_surface, is_high_combo=is_high_combo, combo_count=combo_count)
             
-            self.draw_game_ui(game_surface)
-            self.draw_warning_effects(game_surface)
-            self.draw_ultimate_golden_halo(game_surface)
-            self.draw_ultimate_transition_effects(game_surface)
-            self.draw_difficulty_level_up(game_surface)
-            
-            if self.paused:
-                self.draw_pause_screen(game_surface, mouse_pos)
+            if self.has_shield:
+                self.draw_ship_with_shield(game_surface)
+            else:
+                self.ship.draw(game_surface)
+        
+        self._apply_transformations_and_draw(surface, game_surface, needs_mirror, needs_shake)
+        
+        self.draw_game_ui(surface)
+        self.draw_warning_effects(surface)
+        self.draw_ultimate_golden_halo(surface)
+        self.draw_ultimate_transition_effects(surface)
+        self.draw_difficulty_level_up(surface)
+        
+        if self.post_processor:
+            self.post_processor.danger_flash.draw(surface)
+            self.post_processor.upgrade_flash.draw(surface)
+        
+        if self.paused:
+            self.draw_pause_screen(surface, mouse_pos)
+    
+    def _apply_transformations_and_draw(self, surface, game_surface, needs_mirror, needs_shake):
+        if needs_shake:
+            temp_surface = self.challenge_surface
+            temp_surface.fill(BLACK)
             
             if abs(self.shake_angle) > 0.01:
                 rotated_surface = pygame.transform.rotate(game_surface, self.shake_angle)
                 rotated_rect = rotated_surface.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-                surface.blit(rotated_surface, (rotated_rect.x + self.shake_offset_x, rotated_rect.y + self.shake_offset_y))
+                temp_surface.blit(rotated_surface, (rotated_rect.x + self.shake_offset_x, rotated_rect.y + self.shake_offset_y))
             else:
-                surface.blit(game_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
+                temp_surface.blit(game_surface, (int(self.shake_offset_x), int(self.shake_offset_y)))
+            
+            game_surface = temp_surface
         
+        if needs_mirror:
+            mirrored_surface = pygame.transform.flip(game_surface, True, False)
+            surface.blit(mirrored_surface, (0, 0))
         else:
-            self.particle_system.draw(surface)
-            
-            if not (self.collision_happened and self.collision_delay > 0):
-                for powerup in self.powerups:
-                    powerup.draw(surface)
-                
-                for meteor in self.meteors:
-                    meteor.draw(surface)
-                
-                for bullet in self.bullets:
-                    bullet.draw(surface)
-                
-                if self.has_shield:
-                    self.draw_ship_with_shield(surface)
-                else:
-                    self.ship.draw(surface)
-            
-            self.draw_game_ui(surface)
-            self.draw_warning_effects(surface)
-            self.draw_ultimate_golden_halo(surface)
-            self.draw_ultimate_transition_effects(surface)
-            self.draw_difficulty_level_up(surface)
-            
-            if self.paused:
-                self.draw_pause_screen(surface, mouse_pos)
+            surface.blit(game_surface, (0, 0))

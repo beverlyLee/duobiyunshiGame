@@ -3,7 +3,8 @@ import math
 from game.config import (
     SCREEN_HEIGHT,
     YELLOW, WHITE,
-    BLUE_YELLOW_MIX, ICE_BLUE
+    BLUE_YELLOW_MIX, ICE_BLUE,
+    RAINBOW_COLORS
 )
 
 class Bullet:
@@ -88,3 +89,42 @@ class Bullet:
                 x = cx + r * math.cos(rad)
                 y = cy + r * math.sin(rad)
                 pygame.draw.line(surface, ICE_BLUE, (cx, cy), (x, y), 1)
+    
+    def get_center(self):
+        return self.x + self.width // 2, self.y + self.height // 2
+    
+    def get_trail_position(self):
+        return self.x + self.width // 2, self.y + self.height
+    
+    def draw_with_combo_effect(self, surface, is_high_combo=False, combo_count=0):
+        if not is_high_combo or combo_count < 20:
+            self.draw(surface)
+            return
+        
+        center_x, center_y = self.get_center()
+        
+        glow_size = int(self.width * 3)
+        color_index = (pygame.time.get_ticks() // 50) % len(RAINBOW_COLORS)
+        glow_color = RAINBOW_COLORS[color_index]
+        
+        glow_surface = pygame.Surface((glow_size * 2, glow_size * 2), pygame.SRCALPHA)
+        pygame.draw.circle(
+            glow_surface,
+            (*glow_color, 80),
+            (glow_size, glow_size),
+            glow_size
+        )
+        surface.blit(glow_surface, (int(center_x - glow_size), int(center_y - glow_size)))
+        
+        inner_glow_surface = pygame.Surface((self.width * 4, self.height * 2), pygame.SRCALPHA)
+        next_color_index = (color_index + 1) % len(RAINBOW_COLORS)
+        inner_color = RAINBOW_COLORS[next_color_index]
+        
+        pygame.draw.rect(
+            inner_glow_surface,
+            (*inner_color, 60),
+            (0, 0, self.width * 4, self.height * 2)
+        )
+        surface.blit(inner_glow_surface, (int(self.x - self.width * 1.5), int(self.y - self.height // 2)))
+        
+        self.draw(surface)
